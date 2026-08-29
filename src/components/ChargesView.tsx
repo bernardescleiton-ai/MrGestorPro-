@@ -13,6 +13,8 @@ interface ChargesViewProps {
   onDeleteCharge: (chargeId: string) => void;
   onSendWhatsApp: (client: Client, charge?: Charge) => void;
   onDeleteSentLog?: (logId: string) => void;
+  onDeleteSentLogsBatch?: (logIds: string[]) => void;
+  onDeleteChargesBatch?: (chargeIds: string[]) => void;
   onToggleMessageSent?: (chargeId: string) => void;
 }
 
@@ -26,17 +28,28 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
   onDeleteCharge,
   onSendWhatsApp,
   onDeleteSentLog,
+  onDeleteSentLogsBatch,
+  onDeleteChargesBatch,
   onToggleMessageSent,
 }) => {
   const [activeTab, setActiveTab] = useState<'logs' | 'all'>('logs');
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('');
+  const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
+  const [selectedChargeIds, setSelectedChargeIds] = useState<string[]>([]);
 
   const safeClients = Array.isArray(clients) ? clients : [];
   const safeCharges = Array.isArray(charges) ? charges : [];
   const safeSentLogs = Array.isArray(sentLogs) ? sentLogs : [];
 
   const getClient = (clientId: string) => safeClients.find((c) => c.id === clientId);
+
+  // Filter out any IDs that no longer exist
+  const validLogIds = new Set(safeSentLogs.map((l) => l.id));
+  const activeSelectedLogIds = selectedLogIds.filter((id) => validLogIds.has(id));
+
+  const validChargeIds = new Set(safeCharges.map((c) => c.id));
+  const activeSelectedChargeIds = selectedChargeIds.filter((id) => validChargeIds.has(id));
 
   // Compute stats
   const totalSentMessages = safeSentLogs.length + safeCharges.filter((c) => c.messageSent && !safeSentLogs.some((l) => l.chargeId === c.id)).length;
@@ -47,24 +60,24 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
   ]).size;
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const sentTodayCount = sentLogs.filter((l) => l.sentAt && l.sentAt.slice(0, 10) === todayIso).length +
-    charges.filter((c) => c.messageSentAt && c.messageSentAt.slice(0, 10) === todayIso).length;
+  const sentTodayCount = safeSentLogs.filter((l) => l.sentAt && l.sentAt.slice(0, 10) === todayIso).length +
+    safeCharges.filter((c) => c.messageSentAt && c.messageSentAt.slice(0, 10) === todayIso).length;
 
-  const pendingMessageCount = charges.filter((c) => !c.messageSent && !c.paid).length;
+  const pendingMessageCount = safeCharges.filter((c) => !c.messageSent && !c.paid).length;
 
   // Filter sent logs
-  const filteredSentLogs = sentLogs.filter((log) => {
+  const filteredSentLogs = safeSentLogs.filter((log) => {
     const term = search.toLowerCase();
     return (
-      log.clientName.toLowerCase().includes(term) ||
-      log.phone.includes(term) ||
+      (log.clientName || '').toLowerCase().includes(term) ||
+      (log.phone || '').includes(term) ||
       (log.note && log.note.toLowerCase().includes(term)) ||
       (log.messageText && log.messageText.toLowerCase().includes(term))
     );
-  }).sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+  }).sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
 
   // Filter all charges
-  const filteredCharges = charges
+  const filteredCharges = safeCharges
     .filter((ch) => {
       const client = getClient(ch.clientId);
       const clientName = client ? client.name.toLowerCase() : '';
@@ -82,7 +95,42 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
 
       return matchesSearch && matchesFilter;
     })
-    .sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+    .sort((a, b) => (b.dueDate || '').localeCompare(a.dueDate || ''));
+
+  // Select all handlers
+  const handleSelectAllLogs = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedLogIds(filteredSentLogs.map((l) => l.id).filter(Boolean));
+    } else {
+      setSelectedLogIds([]);
+    }
+  };
+
+  const handleToggleSelectLog = (logId: string) => {
+    if (!logId) return;
+    setSelectedLogIds((prev) =>
+      prev.includes(logId) ? prev.filter((id) => id !== logId) : [...prev, logId]
+    );
+  };
+
+  const isAllLogsSelected = filteredSentLogs.length > 0 && filteredSentLogs.every((l) => activeSelectedLogIds.includes(l.id));
+
+  const handleSelectAllCharges = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedChargeIds(filteredCharges.map((c) => c.id).filter(Boolean));
+    } else {
+      setSelectedChargeIds([]);
+    }
+  };
+
+  const handleToggleSelectCharge = (chargeId: string) => {
+    if (!chargeId) return;
+    setSelectedChargeIds((prev) =>
+      prev.includes(chargeId) ? prev.filter((id) => id !== chargeId) : [...prev, chargeId]
+    );
+  };
+
+  const isAllChargesSelected = filteredCharges.length > 0 && filteredCharges.every((c) => activeSelectedChargeIds.includes(c.id));
 
   return (
     <div className="space-y-6">
@@ -118,7 +166,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
             }`}
           >
             <Calendar className="w-3.5 h-3.5 text-blue-600" />
-            <span>Todos os Registros ({charges.length})</span>
+            <span>Todos os Registros ({safeCharges.length})</span>
           </button>
         </div>
       </div>
@@ -170,6 +218,72 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
         </div>
       </div>
 
+      {/* Bulk Action Bar for Sent Logs */}
+      {activeTab === 'logs' && activeSelectedLogIds.length > 0 && (
+        <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between text-xs text-rose-900 shadow-md animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 font-bold">
+            <span className="w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs">
+              {activeSelectedLogIds.length}
+            </span>
+            <span>
+              registro{activeSelectedLogIds.length > 1 ? 's' : ''} do histórico selecionado{activeSelectedLogIds.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelectedLogIds([])}
+              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-semibold transition-colors cursor-pointer"
+            >
+              Desmarcar todos
+            </button>
+            <button
+              onClick={() => {
+                if (onDeleteSentLogsBatch) {
+                  onDeleteSentLogsBatch(activeSelectedLogIds);
+                  setSelectedLogIds([]);
+                }
+              }}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" /> Excluir {activeSelectedLogIds.length} do Histórico
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Action Bar for Charges */}
+      {activeTab === 'all' && activeSelectedChargeIds.length > 0 && (
+        <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between text-xs text-rose-900 shadow-md animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 font-bold">
+            <span className="w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs">
+              {activeSelectedChargeIds.length}
+            </span>
+            <span>
+              vencimento{activeSelectedChargeIds.length > 1 ? 's' : ''} selecionado{activeSelectedChargeIds.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelectedChargeIds([])}
+              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-semibold transition-colors cursor-pointer"
+            >
+              Desmarcar todos
+            </button>
+            <button
+              onClick={() => {
+                if (onDeleteChargesBatch) {
+                  onDeleteChargesBatch(activeSelectedChargeIds);
+                  setSelectedChargeIds([]);
+                }
+              }}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" /> Excluir {activeSelectedChargeIds.length} Vencimento{activeSelectedChargeIds.length > 1 ? 's' : ''}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Table Container */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
         {/* Table Filters Header */}
@@ -220,6 +334,15 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={isAllLogsSelected}
+                        onChange={handleSelectAllLogs}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
+                        title="Selecionar todos os registros do histórico"
+                      />
+                    </th>
                     <th className="px-6 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Cliente</th>
                     <th className="px-6 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Vencimento</th>
                     <th className="px-6 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Data & Hora do Envio</th>
@@ -230,8 +353,23 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredSentLogs.map((log) => {
                     const client = getClient(log.clientId);
+                    const isSelected = activeSelectedLogIds.includes(log.id);
                     return (
-                      <tr key={log.id} className="hover:bg-emerald-50/30 group transition-colors">
+                      <tr
+                        key={log.id}
+                        className={`hover:bg-emerald-50/30 group transition-colors ${
+                          isSelected ? 'bg-rose-50/40' : ''
+                        }`}
+                      >
+                        <td className="px-4 py-4 w-10">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSelectLog(log.id)}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
+                            title="Selecionar este registro"
+                          />
+                        </td>
                         <td className="px-6 py-4">
                           <div className="font-bold text-slate-800 text-sm">{log.clientName}</div>
                           <div className="text-xs text-slate-500 font-mono flex items-center gap-1 mt-0.5">
@@ -261,7 +399,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                             {client && (
                               <button
                                 onClick={() => onSendWhatsApp(client)}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all active:scale-95 flex items-center gap-1"
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
                                 title="Reenviar mensagem pelo WhatsApp"
                               >
                                 Reenviar WhatsApp
@@ -271,7 +409,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                             {onDeleteSentLog && (
                               <button
                                 onClick={() => onDeleteSentLog(log.id)}
-                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors"
+                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
                                 title="Excluir do histórico"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -299,6 +437,15 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={isAllChargesSelected}
+                        onChange={handleSelectAllCharges}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
+                        title="Selecionar todos os vencimentos"
+                      />
+                    </th>
                     <th className="px-6 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Cliente</th>
                     <th className="px-6 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Vencimento</th>
                     <th className="px-6 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Observação</th>
@@ -311,8 +458,23 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                   {filteredCharges.map((ch) => {
                     const client = getClient(ch.clientId);
                     const st = getChargeStatus(ch);
+                    const isSelected = activeSelectedChargeIds.includes(ch.id);
                     return (
-                      <tr key={ch.id} className="hover:bg-blue-50/50 group transition-colors">
+                      <tr
+                        key={ch.id}
+                        className={`hover:bg-blue-50/50 group transition-colors ${
+                          isSelected ? 'bg-rose-50/40' : ''
+                        }`}
+                      >
+                        <td className="px-4 py-4 w-10">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSelectCharge(ch.id)}
+                            className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer"
+                            title="Selecionar este vencimento"
+                          />
+                        </td>
                         <td className="px-6 py-4 font-bold text-slate-800 text-sm">
                           {client ? client.name : <span className="text-rose-500">Cliente removido</span>}
                         </td>
@@ -356,7 +518,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                             {client && (
                               <button
                                 onClick={() => onSendWhatsApp(client, ch)}
-                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors flex items-center gap-1 active:scale-95"
+                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs transition-colors flex items-center gap-1 active:scale-95 cursor-pointer"
                                 title="Enviar lembrete pelo WhatsApp e registrar no histórico"
                               >
                                 Enviar WhatsApp
@@ -366,7 +528,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                             {onToggleMessageSent && (
                               <button
                                 onClick={() => onToggleMessageSent(ch.id)}
-                                className={`px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                                className={`px-2 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
                                   ch.messageSent
                                     ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-300'
                                     : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
@@ -380,7 +542,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                             {!ch.paid ? (
                               <button
                                 onClick={() => onMarkPaid(ch.id)}
-                                className="bg-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors shadow-2xs active:scale-95"
+                                className="bg-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors shadow-2xs active:scale-95 cursor-pointer"
                                 title="Marcar prazo como concluído"
                               >
                                 Concluir
@@ -388,7 +550,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                             ) : (
                               <button
                                 onClick={() => onUndoPaid(ch.id)}
-                                className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors"
+                                className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors cursor-pointer"
                                 title="Desfazer conclusão"
                               >
                                 Desfazer
@@ -397,7 +559,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
 
                             <button
                               onClick={() => onDeleteCharge(ch.id)}
-                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors"
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
                               title="Excluir registro"
                             >
                               <Trash2 className="w-3.5 h-3.5" />

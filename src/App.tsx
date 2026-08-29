@@ -819,10 +819,52 @@ export default function App() {
   };
 
   const handleDeleteSentLog = (logId: string) => {
-    setData((prev) => ({
-      ...prev,
-      sentLogs: (prev.sentLogs || []).filter((l) => l.id !== logId),
-    }));
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir do Histórico',
+      message: 'Deseja excluir este registro do histórico de mensagens?',
+      onConfirm: () => {
+        setData((prev) => ({
+          ...prev,
+          sentLogs: (prev.sentLogs || []).filter((l) => l.id !== logId),
+        }));
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const handleDeleteSentLogsBatch = (logIds: string[]) => {
+    if (!logIds || logIds.length === 0) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Histórico em Massa',
+      message: `Tem certeza de que deseja excluir permanentemente os ${logIds.length} registros selecionados do histórico?`,
+      onConfirm: () => {
+        const idSet = new Set(logIds);
+        setData((prev) => ({
+          ...prev,
+          sentLogs: (prev.sentLogs || []).filter((l) => !idSet.has(l.id)),
+        }));
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
+  };
+
+  const handleDeleteChargesBatch = (chargeIds: string[]) => {
+    if (!chargeIds || chargeIds.length === 0) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Vencimentos em Massa',
+      message: `Tem certeza de que deseja excluir permanentemente os ${chargeIds.length} vencimentos selecionados?`,
+      onConfirm: () => {
+        const idSet = new Set(chargeIds);
+        setData((prev) => ({
+          ...prev,
+          charges: prev.charges.filter((ch) => !idSet.has(ch.id)),
+        }));
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+      },
+    });
   };
 
   const handleToggleMessageSent = (chargeId: string) => {
@@ -912,6 +954,8 @@ export default function App() {
             onDeleteCharge={handleDeleteCharge}
             onSendWhatsApp={handleSendWhatsApp}
             onDeleteSentLog={handleDeleteSentLog}
+            onDeleteSentLogsBatch={handleDeleteSentLogsBatch}
+            onDeleteChargesBatch={handleDeleteChargesBatch}
             onToggleMessageSent={handleToggleMessageSent}
           />
         )}
