@@ -1,0 +1,6 @@
+{
+  "name": "MrGestor",
+  "description": "Sistema de gestão de clientes, controle de cobranças, vencimentos e alertas automáticos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

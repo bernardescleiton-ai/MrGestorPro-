@@ -1,0 +1,16 @@
+{
+  "entities": {
+    "app_state": {
+      "title": "AppState",
+      "description": "Global application state for MrGestor sync",
+      "properties": {
+        "clients": { "type": "array" },
+        "charges": { "type": "array" },
+        "settings": { "type": "object" },
+        "sentLogs": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["clients", "charges", "settings"]
+    }
+  }
+}
