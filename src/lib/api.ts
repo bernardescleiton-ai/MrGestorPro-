@@ -9,9 +9,14 @@ import {
   deleteChargeFromFirestore, 
   deleteChargesBatchFromFirestore,
   deleteSentLogFromFirestore,
-  deleteSentLogsBatchFromFirestore
+  deleteSentLogsBatchFromFirestore,
+  fetchRestorePointsFromFirestore,
+  subscribeToRestorePoints,
+  saveRestorePointToFirestore,
+  deleteRestorePointFromFirestore
 } from './firebase';
 import { cleanClientName, isDateString } from '../utils/clientParser';
+import { SystemRestorePoint } from '../types';
 
 export { 
   deleteClientFromFirestore, 
@@ -19,7 +24,11 @@ export {
   deleteChargeFromFirestore, 
   deleteChargesBatchFromFirestore,
   deleteSentLogFromFirestore,
-  deleteSentLogsBatchFromFirestore
+  deleteSentLogsBatchFromFirestore,
+  fetchRestorePointsFromFirestore,
+  subscribeToRestorePoints,
+  saveRestorePointToFirestore,
+  deleteRestorePointFromFirestore
 };
 
 export function sanitizeAppData(raw: any): AppData {

@@ -11,7 +11,7 @@ import {
   enableNetwork,
   setLogLevel as setFirestoreLogLevel
 } from 'firebase/firestore';
-import { AppData, Client, Charge, SentMessageLog, CompanySettings } from '../types';
+import { AppData, Client, Charge, SentMessageLog, CompanySettings, SystemRestorePoint } from '../types';
 import { initialAppData } from '../data/initialData';
 import firebaseConfigFile from '../../firebase-applet-config.json';
 
@@ -400,3 +400,93 @@ export async function deleteSentLogsBatchFromFirestore(logIds: string[]): Promis
     console.warn('Delete sentLogs batch error:', err);
   }
 }
+
+// -------------------------------------------------------------
+// Restore Points (Pontos de Restauração) Sync Engine
+// -------------------------------------------------------------
+
+export async function fetchRestorePointsFromFirestore(): Promise<SystemRestorePoint[]> {
+  if (isQuotaExhausted) return [];
+  try {
+    const snap = await getDocs(collection(db, 'restore_points'));
+    const points: SystemRestorePoint[] = [];
+    snap.forEach((d) => {
+      points.push({ id: d.id, ...d.data() } as SystemRestorePoint);
+    });
+    // Sort newest first
+    return points.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } catch (err: any) {
+    const errorMsg = String(err?.message || err);
+    if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
+      markQuotaExhausted();
+      return [];
+    }
+    console.warn('Fetch restore points error:', err);
+    return [];
+  }
+}
+
+export function subscribeToRestorePoints(
+  onPoints: (points: SystemRestorePoint[]) => void,
+  onError?: (err: Error) => void
+) {
+  if (isQuotaExhausted) {
+    return () => {};
+  }
+
+  const unsub = onSnapshot(
+    collection(db, 'restore_points'),
+    (snapshot) => {
+      const points: SystemRestorePoint[] = [];
+      snapshot.forEach((d) => {
+        points.push({ id: d.id, ...d.data() } as SystemRestorePoint);
+      });
+      // Sort newest first
+      points.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      onPoints(points);
+    },
+    (err: any) => {
+      const errorMsg = String(err?.message || err);
+      if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
+        markQuotaExhausted();
+        return;
+      }
+      console.warn('Restore points snapshot error:', err);
+      if (onError) onError(err);
+    }
+  );
+
+  return unsub;
+}
+
+export async function saveRestorePointToFirestore(point: SystemRestorePoint): Promise<void> {
+  if (isQuotaExhausted || !point || !point.id) return;
+  try {
+    const pointRef = doc(db, 'restore_points', point.id);
+    const { id, ...rest } = point;
+    await setDoc(pointRef, sanitizeDataForFirestore(rest), { merge: true });
+  } catch (err: any) {
+    const errorMsg = String(err?.message || err);
+    if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
+      markQuotaExhausted();
+      return;
+    }
+    console.warn('Save restore point error:', err);
+    throw err;
+  }
+}
+
+export async function deleteRestorePointFromFirestore(pointId: string): Promise<void> {
+  if (isQuotaExhausted || !pointId) return;
+  try {
+    await deleteDoc(doc(db, 'restore_points', pointId));
+  } catch (err: any) {
+    const errorMsg = String(err?.message || err);
+    if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
+      markQuotaExhausted();
+      return;
+    }
+    console.warn('Delete restore point error:', err);
+  }
+}
+

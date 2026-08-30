@@ -29,7 +29,10 @@ import {
   deleteChargeFromFirestore, 
   deleteChargesBatchFromFirestore,
   deleteSentLogFromFirestore, 
-  deleteSentLogsBatchFromFirestore 
+  deleteSentLogsBatchFromFirestore,
+  subscribeToRestorePoints,
+  saveRestorePointToFirestore,
+  deleteRestorePointFromFirestore
 } from './lib/api';
 
 const STORAGE_KEY = 'gc_v1_data';
@@ -130,6 +133,34 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
+  // Real-time synced Restore Points across all devices (APK + Web)
+  const [restorePoints, setRestorePoints] = useState<SystemRestorePoint[]>(() => {
+    try {
+      const saved = localStorage.getItem('gc_v1_restore_points');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Subscribe to real-time Restore Points from Cloud Firestore
+  useEffect(() => {
+    const unsub = subscribeToRestorePoints(
+      (points) => {
+        setRestorePoints(points);
+        try {
+          localStorage.setItem('gc_v1_restore_points', JSON.stringify(points));
+        } catch {
+          // Local storage fallback
+        }
+      },
+      (err) => {
+        console.warn('Restore points stream error:', err);
+      }
+    );
+    return () => unsub();
+  }, []);
+
   const handleManualSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
@@ -181,8 +212,8 @@ export default function App() {
     };
   }, []);
 
-  // Helper to create and save a system restore point into localStorage
-  const createRestorePoint = (customName?: string, isAuto: boolean = false) => {
+  // Helper to create and save a system restore point into Cloud Firestore + localStorage
+  const createRestorePoint = async (customName?: string, isAuto: boolean = false): Promise<SystemRestorePoint | null> => {
     try {
       const now = new Date();
       const todayDateStr = now.toISOString().split('T')[0];
@@ -218,20 +249,45 @@ export default function App() {
         },
       };
 
-      const existingStr = localStorage.getItem('gc_v1_restore_points');
-      const existing: SystemRestorePoint[] = existingStr ? JSON.parse(existingStr) : [];
-
-      const updated = [newPoint, ...existing];
-      localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
+      // Optimistic local update
+      setRestorePoints((prev) => {
+        const filtered = prev.filter((p) => p.id !== newPoint.id);
+        const updated = [newPoint, ...filtered];
+        try {
+          localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
 
       if (isAuto) {
         localStorage.setItem('gc_v1_last_auto_restore_date', todayDateStr);
       }
 
+      // Synchronize across all devices (APK + Web) in real-time
+      saveRestorePointToFirestore(newPoint).catch((err) => {
+        console.warn('Real-time restore point sync notice:', err);
+      });
+
       return newPoint;
     } catch (e) {
       console.error('Failed to create system restore point:', e);
       return null;
+    }
+  };
+
+  const handleDeleteRestorePoint = async (pointId: string): Promise<void> => {
+    setRestorePoints((prev) => {
+      const updated = prev.filter((p) => p.id !== pointId);
+      try {
+        localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    try {
+      await deleteRestorePointFromFirestore(pointId);
+    } catch (e) {
+      console.warn('Delete restore point notice:', e);
     }
   };
 
@@ -1034,6 +1090,9 @@ export default function App() {
             onSaveSettings={handleSaveSettings}
             clients={data.clients}
             charges={data.charges}
+            restorePoints={restorePoints}
+            onCreateRestorePoint={(name) => createRestorePoint(name, false)}
+            onDeleteRestorePoint={handleDeleteRestorePoint}
             onSync={handleManualSync}
             isSyncing={isSyncing}
             syncError={syncError}

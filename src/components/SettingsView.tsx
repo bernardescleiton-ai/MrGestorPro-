@@ -32,6 +32,9 @@ interface SettingsViewProps {
   onSaveSettings: (settings: CompanySettings) => void;
   clients: Client[];
   charges: Charge[];
+  restorePoints?: SystemRestorePoint[];
+  onCreateRestorePoint?: (name?: string) => Promise<SystemRestorePoint | null>;
+  onDeleteRestorePoint?: (id: string) => Promise<void>;
   onImportData?: (newData: { settings: CompanySettings; clients: Client[]; charges: Charge[] }) => void;
   onSync?: () => void;
   isSyncing?: boolean;
@@ -47,6 +50,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   clients,
   charges,
+  restorePoints: propRestorePoints,
+  onCreateRestorePoint,
+  onDeleteRestorePoint,
   onImportData,
   onSync,
   isSyncing = false,
@@ -57,12 +63,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [restorePointName, setRestorePointName] = useState('');
   const [toast, setToast] = useState<ToastFeedback | null>(null);
+  const [isSavingPoint, setIsSavingPoint] = useState(false);
 
   // Custom in-app dialog states
   const [pointToDelete, setPointToDelete] = useState<SystemRestorePoint | null>(null);
   const [pointToRestore, setPointToRestore] = useState<SystemRestorePoint | null>(null);
 
-  const [restorePoints, setRestorePoints] = useState<SystemRestorePoint[]>(() => {
+  const [localRestorePoints, setLocalRestorePoints] = useState<SystemRestorePoint[]>(() => {
     try {
       const saved = localStorage.getItem('gc_v1_restore_points');
       return saved ? JSON.parse(saved) : [];
@@ -70,6 +77,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return [];
     }
   });
+
+  const restorePoints = propRestorePoints !== undefined ? propRestorePoints : localRestorePoints;
 
   useEffect(() => {
     setPermStatus(getNotificationPermissionStatus());
@@ -82,10 +91,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }, 4500);
   };
 
-  const handleCreateRestorePoint = () => {
+  const handleCreateRestorePoint = async () => {
+    const titleToUse = restorePointName.trim();
+    setIsSavingPoint(true);
+
+    if (onCreateRestorePoint) {
+      try {
+        const created = await onCreateRestorePoint(titleToUse || undefined);
+        if (created) {
+          showToast(`Ponto de restauração "${created.name}" criado e sincronizado na nuvem!`, 'success');
+        }
+      } catch (err) {
+        console.error('Error creating restore point:', err);
+        showToast('Erro ao sincronizar ponto na nuvem.', 'error');
+      } finally {
+        setIsSavingPoint(false);
+        setRestorePointName('');
+      }
+      return;
+    }
+
+    // Fallback if no prop provided
     const now = new Date();
     const dateFormatted = `${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
-    const defaultTitle = restorePointName.trim() || `Ponto Manual - ${dateFormatted}`;
+    const defaultTitle = titleToUse || `Ponto Manual - ${dateFormatted}`;
 
     const newPoint: SystemRestorePoint = {
       id: `rp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -100,14 +129,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       },
     };
 
-    const updated = [newPoint, ...restorePoints];
-    setRestorePoints(updated);
+    const updated = [newPoint, ...localRestorePoints];
+    setLocalRestorePoints(updated);
     try {
       localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
     } catch (e) {
       console.error('Error saving restore point:', e);
     }
     setRestorePointName('');
+    setIsSavingPoint(false);
     showToast(`Ponto de restauração "${newPoint.name}" criado com sucesso!`, 'success');
   };
 
@@ -124,17 +154,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setPointToRestore(null);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!pointToDelete) return;
     const targetId = pointToDelete.id;
     const targetName = pointToDelete.name;
-    const updated = restorePoints.filter((rp) => rp.id !== targetId);
-    setRestorePoints(updated);
-    try {
-      localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
-    } catch (e) {
-      console.error('Error deleting restore point:', e);
+
+    if (onDeleteRestorePoint) {
+      try {
+        await onDeleteRestorePoint(targetId);
+      } catch (err) {
+        console.error('Error deleting point from cloud:', err);
+      }
+    } else {
+      const updated = localRestorePoints.filter((rp) => rp.id !== targetId);
+      setLocalRestorePoints(updated);
+      try {
+        localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Error deleting restore point:', e);
+      }
     }
+
     setPointToDelete(null);
     showToast(`Ponto "${targetName}" excluído do histórico!`, 'info');
   };
@@ -369,9 +409,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[11px] font-extrabold font-mono">
                   {restorePoints.length} salvos
                 </span>
+                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold font-mono flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" /> Sincronia Tempo Real
+                </span>
               </h2>
               <p className="text-xs text-slate-500 font-mono">
-                Pontos automáticos são gerados no máximo 1 vez por dia. Pontos adicionais são criados manualmente.
+                Sincronizados instantaneamente entre App APK (celular) e Navegador Web. Pontos automáticos diários ou manuais.
               </p>
             </div>
           </div>
@@ -396,15 +439,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 value={restorePointName}
                 onChange={(e) => setRestorePointName(e.target.value)}
                 placeholder="Nome do ponto (Ex: Antes de cadastrar novos clientes)..."
-                className="flex-1 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                disabled={isSavingPoint}
+                className="flex-1 bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-60"
               />
               <button
                 type="button"
                 onClick={handleCreateRestorePoint}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 shrink-0"
+                disabled={isSavingPoint}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
               >
-                <Camera className="w-4 h-4" />
-                Criar Ponto de Restauração
+                {isSavingPoint ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Camera className="w-4 h-4" />
+                )}
+                {isSavingPoint ? 'Salvando na Nuvem...' : 'Criar Ponto de Restauração'}
               </button>
             </div>
           </div>

@@ -3,6 +3,7 @@
     "app_state": {
       "title": "AppState",
       "description": "Global application state for MrGestor sync",
+      "type": "object",
       "properties": {
         "clients": { "type": "array" },
         "charges": { "type": "array" },
@@ -11,6 +12,25 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["clients", "charges", "settings"]
+    },
+    "restore_points": {
+      "title": "RestorePoint",
+      "description": "System restore point for instantaneous real-time cross-device sync",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "clientsCount": { "type": "number" },
+        "chargesCount": { "type": "number" },
+        "data": { "type": "object" }
+      },
+      "required": ["name", "createdAt", "data"]
+    }
+  },
+  "firestore": {
+    "/restore_points/{pointId}": {
+      "schema": "restore_points",
+      "description": "Cross-device synced system restore points"
     }
   }
 }
