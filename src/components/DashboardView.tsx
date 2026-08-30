@@ -1,12 +1,12 @@
 import React from 'react';
 import { Users, Calendar, AlertTriangle, Clock, AlertCircle, Layers, ChevronRight, Zap, ShieldCheck } from 'lucide-react';
 import { AppData, SectionType, Client, Charge } from '../types';
-import { getDaysUntilDue } from '../utils/formatters';
+import { getDaysUntilDue, isClientActive } from '../utils/formatters';
 import { DueTabFilter } from './DueView';
 
 interface DashboardViewProps {
   data: AppData;
-  onNavigate: (section: SectionType, dueTab?: DueTabFilter) => void;
+  onNavigate: (section: SectionType, dueTab?: DueTabFilter, clientFilter?: 'all' | 'active' | 'overdue') => void;
   onOpenNewClient: () => void;
   onMarkPaid: (chargeId: string) => void;
   onSendWhatsApp?: (client: Client, charge?: Charge) => void;
@@ -21,16 +21,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const charges = Array.isArray(data?.charges) ? data.charges : [];
 
   // Clientes ativos: somente clientes que ainda não venceram (vencimento hoje ou futuro, e sem pendências vencidas)
-  const activeClientsCount = clients.filter((cl) => {
-    const diff = getDaysUntilDue(cl.dueDate);
-    if (diff !== null && diff < 0) return false;
-    const clientPendingCharges = charges.filter((c) => c.clientId === cl.id && !c.paid);
-    const hasOverdueCharge = clientPendingCharges.some((c) => {
-      const cDiff = getDaysUntilDue(c.dueDate);
-      return cDiff !== null && cDiff < 0;
-    });
-    return !hasOverdueCharge;
-  }).length;
+  const activeClientsCount = clients.filter((cl) => isClientActive(cl, charges)).length;
 
   // Gather all pending charges + client due dates
   const chargeClientIds = new Set(charges.filter((c) => !c.paid).map((c) => c.clientId));
@@ -118,7 +109,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {/* 1. Clientes Ativos */}
         <button
           type="button"
-          onClick={() => onNavigate('clients')}
+          onClick={() => onNavigate('clients', undefined, 'active')}
           className="group relative flex flex-col justify-between p-3.5 sm:p-5 rounded-2xl bg-gradient-to-b from-white via-slate-50 to-blue-50/50 text-left transition-all duration-150 border-t-2 border-t-white border-x border-slate-200/90 border-b-0 shadow-[0_6px_0_0_#cbd5e1,0_10px_20px_-3px_rgba(15,23,42,0.12)] hover:shadow-[0_8px_0_0_#94a3b8,0_14px_24px_-4px_rgba(59,130,246,0.2)] hover:-translate-y-0.5 active:translate-y-1.5 active:shadow-[0_1px_0_0_#94a3b8,0_3px_6px_rgba(0,0,0,0.1)] overflow-hidden"
         >
           {/* Cyber Accent Line */}

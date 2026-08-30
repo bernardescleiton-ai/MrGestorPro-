@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Search, Phone, Mail, FileText, Edit, Trash2, History, MessageSquare, Sparkles, CheckSquare, Square, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Check, Pencil } from 'lucide-react';
-import { Client } from '../types';
-import { formatDateTimeBR, getClientStatusBadge } from '../utils/formatters';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Search, Phone, Mail, FileText, Edit, Trash2, History, MessageSquare, Sparkles, CheckSquare, Square, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Check, Pencil, Users, ShieldCheck, AlertTriangle, X } from 'lucide-react';
+import { Client, Charge } from '../types';
+import { formatDateTimeBR, getClientStatusBadge, isClientActive } from '../utils/formatters';
 
 type SortField = 'name' | 'phone' | 'dueDate' | 'status';
 type SortDirection = 'asc' | 'desc';
+export type ClientFilterType = 'all' | 'active' | 'overdue';
 
 interface InlinePhoneEditorProps {
   clientId: string;
@@ -85,6 +86,8 @@ const InlinePhoneEditor: React.FC<InlinePhoneEditorProps> = ({ clientId, initial
 
 interface ClientsViewProps {
   clients: Client[];
+  charges?: Charge[];
+  initialStatusFilter?: ClientFilterType;
   onOpenNewClient: () => void;
   onOpenEditClient: (client: Client) => void;
   onUpdatePhone?: (clientId: string, newPhone: string) => void;
@@ -97,6 +100,8 @@ interface ClientsViewProps {
 
 export const ClientsView: React.FC<ClientsViewProps> = ({
   clients,
+  charges = [],
+  initialStatusFilter = 'all',
   onOpenNewClient,
   onOpenEditClient,
   onUpdatePhone,
@@ -107,14 +112,29 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   onOpenRenewClient,
 }) => {
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ClientFilterType>(initialStatusFilter);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [sortField, setSortField] = useState<SortField>('dueDate');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  const safeClients = Array.isArray(clients) ? clients : [];
+  useEffect(() => {
+    if (initialStatusFilter) {
+      setStatusFilter(initialStatusFilter);
+    }
+  }, [initialStatusFilter]);
+
+  const safeClients = useMemo(() => (Array.isArray(clients) ? clients : []), [clients]);
+  const safeCharges = useMemo(() => (Array.isArray(charges) ? charges : []), [charges]);
+
+  // Status counts
+  const totalCount = safeClients.length;
+  const activeCount = useMemo(() => {
+    return safeClients.filter((cl) => isClientActive(cl, safeCharges)).length;
+  }, [safeClients, safeCharges]);
+  const overdueCount = totalCount - activeCount;
 
   // Filter out any selected IDs that no longer exist in clients
-  const validClientIds = new Set(safeClients.map((c) => c.id).filter(Boolean));
+  const validClientIds = useMemo(() => new Set(safeClients.map((c) => c.id).filter(Boolean)), [safeClients]);
   const activeSelectedIds = selectedIds.filter((id) => validClientIds.has(id));
 
   const handleSort = (field: SortField) => {
@@ -141,31 +161,44 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     return Math.round(diffMs / (1000 * 60 * 60 * 24));
   };
 
-  const filteredClients = safeClients
-    .filter(
-      (c) =>
-        c &&
-        ((c.name || '').toLowerCase().includes(search.toLowerCase()) ||
-          (c.phone || '').toLowerCase().includes(search.toLowerCase()))
-    )
-    .sort((a, b) => {
-      let res = 0;
-      if (sortField === 'name') {
-        res = (a.name || '').localeCompare(b.name || '', 'pt-BR');
-      } else if (sortField === 'phone') {
-        res = (a.phone || '').localeCompare(b.phone || '');
-      } else if (sortField === 'dueDate') {
-        const dA = a.dueDate || '9999-99-99';
-        const dB = b.dueDate || '9999-99-99';
-        res = dA.localeCompare(dB);
-      } else if (sortField === 'status') {
-        const wA = getStatusWeight(a.dueDate);
-        const wB = getStatusWeight(b.dueDate);
-        res = wA - wB;
-      }
+  const filteredClients = useMemo(() => {
+    return safeClients
+      .filter((c) => {
+        if (!c) return false;
 
-      return sortDirection === 'asc' ? res : -res;
-    });
+        // Status Filter
+        if (statusFilter === 'active') {
+          if (!isClientActive(c, safeCharges)) return false;
+        } else if (statusFilter === 'overdue') {
+          if (isClientActive(c, safeCharges)) return false;
+        }
+
+        // Text Search
+        const matchesSearch =
+          (c.name || '').toLowerCase().includes(search.toLowerCase()) ||
+          (c.phone || '').toLowerCase().includes(search.toLowerCase());
+
+        return matchesSearch;
+      })
+      .sort((a, b) => {
+        let res = 0;
+        if (sortField === 'name') {
+          res = (a.name || '').localeCompare(b.name || '', 'pt-BR');
+        } else if (sortField === 'phone') {
+          res = (a.phone || '').localeCompare(b.phone || '');
+        } else if (sortField === 'dueDate') {
+          const dA = a.dueDate || '9999-99-99';
+          const dB = b.dueDate || '9999-99-99';
+          res = dA.localeCompare(dB);
+        } else if (sortField === 'status') {
+          const wA = getStatusWeight(a.dueDate);
+          const wB = getStatusWeight(b.dueDate);
+          res = wA - wB;
+        }
+
+        return sortDirection === 'asc' ? res : -res;
+      });
+  }, [safeClients, safeCharges, statusFilter, search, sortField, sortDirection]);
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
@@ -188,8 +221,20 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Clientes</h1>
-          <p className="text-slate-500 text-xs font-mono mt-0.5">Cadastre e gerencie sua carteira de clientes.</p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Clientes</h1>
+            {statusFilter === 'active' && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                Apenas Ativos
+              </span>
+            )}
+            {statusFilter === 'overdue' && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                Apenas Vencidos
+              </span>
+            )}
+          </div>
+          <p className="text-slate-500 text-xs font-mono mt-0.5">Cadastre, filtre e gerencie sua carteira de clientes.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -200,6 +245,82 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Interactive Status Tabs */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-200/60 p-1.5 rounded-2xl border border-slate-300/80 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => setStatusFilter('all')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+            statusFilter === 'all'
+              ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>Todos</span>
+          <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono ${
+            statusFilter === 'all' ? 'bg-slate-100 text-slate-800 font-bold' : 'bg-slate-200 text-slate-600'
+          }`}>
+            {totalCount}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter('active')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+            statusFilter === 'active'
+              ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+              : 'text-slate-600 hover:text-blue-700 hover:bg-blue-50/70'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Clientes Ativos</span>
+          <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono ${
+            statusFilter === 'active' ? 'bg-blue-500 text-white font-bold' : 'bg-blue-100 text-blue-800'
+          }`}>
+            {activeCount}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setStatusFilter('overdue')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+            statusFilter === 'overdue'
+              ? 'bg-rose-600 text-white shadow-sm shadow-rose-500/20'
+              : 'text-slate-600 hover:text-rose-700 hover:bg-rose-50/70'
+          }`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          <span>Vencidos / Atrasados</span>
+          <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono ${
+            statusFilter === 'overdue' ? 'bg-rose-500 text-white font-bold' : 'bg-rose-100 text-rose-800'
+          }`}>
+            {overdueCount}
+          </span>
+        </button>
+      </div>
+
+      {/* Active Filter Notice */}
+      {statusFilter !== 'all' && (
+        <div className="flex items-center justify-between bg-blue-50/80 border border-blue-200/80 px-4 py-2.5 rounded-xl text-xs text-blue-900">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">
+              {statusFilter === 'active' ? '🎯 Mostrando apenas Clientes Ativos' : '⚠️ Mostrando apenas Clientes Vencidos / Em Atraso'}
+            </span>
+            <span className="text-blue-700 font-mono">({filteredClients.length} encontrados)</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('all')}
+            className="text-blue-700 hover:text-blue-900 font-bold flex items-center gap-1 underline underline-offset-2 hover:opacity-80"
+          >
+            <X className="w-3.5 h-3.5" /> Ver todos os clientes
+          </button>
+        </div>
+      )}
 
       {/* Bulk Action Bar */}
       {activeSelectedIds.length > 0 && (
@@ -234,7 +355,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
-          <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Lista de Clientes ({filteredClients.length})</h2>
+          <h2 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+            {statusFilter === 'active' ? 'Clientes Ativos' : statusFilter === 'overdue' ? 'Clientes Vencidos' : 'Lista de Clientes'} ({filteredClients.length})
+          </h2>
           <div className="relative w-full sm:w-72">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
@@ -249,8 +372,17 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
         <div className="overflow-x-auto">
           {filteredClients.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-sm font-mono">
-              Nenhum cliente encontrado.
+            <div className="p-12 text-center text-slate-400 text-sm font-mono space-y-2">
+              <p>Nenhum cliente encontrado {statusFilter !== 'all' ? `no filtro "${statusFilter === 'active' ? 'Ativos' : 'Vencidos'}"` : ''}.</p>
+              {statusFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-xs font-bold transition-colors inline-block"
+                >
+                  Limpar filtro e ver todos ({totalCount})
+                </button>
+              )}
             </div>
           ) : (
             <table className="w-full text-left border-collapse">
@@ -442,3 +574,4 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     </div>
   );
 };
+

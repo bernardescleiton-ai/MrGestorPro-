@@ -4,7 +4,7 @@ import { AppData, SectionType, Client, Charge, CompanySettings, SentMessageLog, 
 import { initialAppData } from './data/initialData';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
-import { ClientsView } from './components/ClientsView';
+import { ClientsView, ClientFilterType } from './components/ClientsView';
 import { ChargesView } from './components/ChargesView';
 import { DueView, DueTabFilter } from './components/DueView';
 import { SettingsView } from './components/SettingsView';
@@ -15,9 +15,22 @@ import { ClientModal, isDuplicateClientName } from './components/ClientModal';
 import { ChargeModal } from './components/ChargeModal';
 import { ClientHistoryModal } from './components/ClientHistoryModal';
 import { RenewalModal } from './components/RenewalModal';
+import { RenewalSuccessToast, RenewalToastData } from './components/RenewalSuccessToast';
 import { openWhatsApp, openDirectWhatsApp, openWhatsAppLink, normalizePhone, getDefaultMessage, encodeForWhatsApp, formatDateTimeBR, calculateRenewalDueDate } from './utils/formatters';
 import { checkAndTriggerDeviceNotifications } from './utils/notifications';
-import { subscribeToApiData, saveAppData, sanitizeAppData, fetchAppData, mergeAppData, deleteClientFromFirestore, deleteChargeFromFirestore } from './lib/api';
+import { 
+  subscribeToApiData, 
+  saveAppData, 
+  sanitizeAppData, 
+  fetchAppData, 
+  mergeAppData, 
+  deleteClientFromFirestore, 
+  deleteClientsBatchFromFirestore,
+  deleteChargeFromFirestore, 
+  deleteChargesBatchFromFirestore,
+  deleteSentLogFromFirestore, 
+  deleteSentLogsBatchFromFirestore 
+} from './lib/api';
 
 const STORAGE_KEY = 'gc_v1_data';
 
@@ -60,13 +73,21 @@ export default function App() {
 
   const [activeSection, setActiveSection] = useState<SectionType>('dashboard');
   const [dueTabFilter, setDueTabFilter] = useState<DueTabFilter>('today');
+  const [clientStatusFilter, setClientStatusFilter] = useState<ClientFilterType>('all');
 
-  const handleNavigate = (section: SectionType, tab?: DueTabFilter) => {
+  const handleNavigate = (section: SectionType, tab?: DueTabFilter, clientFilter?: ClientFilterType) => {
     if (tab) {
       setDueTabFilter(tab);
     } else if (section === 'due') {
       setDueTabFilter('today');
     }
+
+    if (clientFilter) {
+      setClientStatusFilter(clientFilter);
+    } else if (section === 'clients') {
+      setClientStatusFilter('all');
+    }
+
     setActiveSection(section);
   };
 
@@ -81,6 +102,7 @@ export default function App() {
   } | null>(null);
 
   // Modals state
+  const [renewalToast, setRenewalToast] = useState<RenewalToastData | null>(null);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [clientToEdit, setClientToEdit] = useState<Client | null>(null);
 
@@ -321,6 +343,7 @@ export default function App() {
           });
       }
 
+      // Real-time notifications check on load/changes
       checkAndTriggerDeviceNotifications(data, (alertData) => {
         setLiveToast(alertData);
       });
@@ -329,19 +352,17 @@ export default function App() {
     }
   }, [data]);
 
-  // Real-time 5-second interval check for exact hour/minute notifications
+  // Periodic interval check for background/time-based notifications (10 seconds)
   useEffect(() => {
-    checkAndTriggerDeviceNotifications(data, (alertData) => {
-      setLiveToast(alertData);
-    });
-
     const interval = setInterval(() => {
-      checkAndTriggerDeviceNotifications(data, (alertData) => {
-        setLiveToast(alertData);
-      });
-    }, 5000);
+      if (dataRef.current) {
+        checkAndTriggerDeviceNotifications(dataRef.current, (alertData) => {
+          setLiveToast(alertData);
+        });
+      }
+    }, 10000);
     return () => clearInterval(interval);
-  }, [data]);
+  }, []);
 
   // Client handlers
   const handleOpenNewClient = () => {
@@ -418,7 +439,17 @@ export default function App() {
 
     setIsRenewalModalOpen(false);
 
-    // 3. Open WhatsApp if selected
+    // 3. Trigger floating renewal confirmation toast
+    setRenewalToast({
+      client,
+      newDueDate: newDueDateStr,
+      months,
+      amount: customAmount || 0,
+      messageSent: Boolean(sendWhatsApp),
+      customMessage: customWhatsAppMessage,
+    });
+
+    // 4. Open WhatsApp if selected
     if (sendWhatsApp) {
       const phone = normalizePhone(client.phone);
       if (phone) {
@@ -770,6 +801,7 @@ export default function App() {
           ...prev,
           charges: prev.charges.filter((ch) => ch.id !== chargeId),
         }));
+        deleteChargeFromFirestore(chargeId).catch(() => {});
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       },
     });
@@ -828,6 +860,7 @@ export default function App() {
           ...prev,
           sentLogs: (prev.sentLogs || []).filter((l) => l.id !== logId),
         }));
+        deleteSentLogFromFirestore(logId).catch(() => {});
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       },
     });
@@ -845,6 +878,7 @@ export default function App() {
           ...prev,
           sentLogs: (prev.sentLogs || []).filter((l) => !idSet.has(l.id)),
         }));
+        deleteSentLogsBatchFromFirestore(logIds).catch(() => {});
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       },
     });
@@ -862,6 +896,7 @@ export default function App() {
           ...prev,
           charges: prev.charges.filter((ch) => !idSet.has(ch.id)),
         }));
+        deleteChargesBatchFromFirestore(chargeIds).catch(() => {});
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       },
     });
@@ -910,7 +945,10 @@ export default function App() {
       {/* Sidebar / Nav */}
       <Sidebar 
         activeSection={activeSection} 
-        onSelectSection={setActiveSection} 
+        onSelectSection={(sec) => {
+          if (sec === 'clients') setClientStatusFilter('all');
+          setActiveSection(sec);
+        }} 
         onSync={handleManualSync}
         isSyncing={isSyncing}
         syncError={syncError}
@@ -932,6 +970,8 @@ export default function App() {
         {activeSection === 'clients' && (
           <ClientsView
             clients={data.clients}
+            charges={data.charges}
+            initialStatusFilter={clientStatusFilter}
             onOpenNewClient={handleOpenNewClient}
             onOpenEditClient={handleOpenEditClient}
             onUpdatePhone={handleUpdateClientPhone}
@@ -969,6 +1009,8 @@ export default function App() {
             onMarkPaid={handleMarkPaid}
             onSendWhatsApp={handleSendWhatsApp}
             onOpenRenewClient={handleOpenRenewClient}
+            onDeleteClient={handleDeleteClient}
+            onDeleteClientsBatch={handleDeleteBatch}
           />
         )}
 
@@ -1048,6 +1090,13 @@ export default function App() {
         onClose={() => setIsRenewalModalOpen(false)}
         onConfirmRenewal={handleConfirmRenewal}
         onSaveRenewalTemplate={handleSaveRenewalTemplate}
+      />
+
+      {/* Floating Renewal Confirmation Toast */}
+      <RenewalSuccessToast
+        toast={renewalToast}
+        settings={data.settings}
+        onClose={() => setRenewalToast(null)}
       />
 
       {/* Real-time In-App Live Alert Toast */}

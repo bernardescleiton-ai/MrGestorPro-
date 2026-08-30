@@ -1,9 +1,26 @@
 import { AppData } from '../types';
 import { initialAppData } from '../data/initialData';
-import { subscribeToAppData, saveAppDataToFirestore, fetchAppDataFromFirestore, deleteClientFromFirestore, deleteChargeFromFirestore } from './firebase';
+import { 
+  subscribeToAppData, 
+  saveAppDataToFirestore, 
+  fetchAppDataFromFirestore, 
+  deleteClientFromFirestore, 
+  deleteClientsBatchFromFirestore,
+  deleteChargeFromFirestore, 
+  deleteChargesBatchFromFirestore,
+  deleteSentLogFromFirestore,
+  deleteSentLogsBatchFromFirestore
+} from './firebase';
 import { cleanClientName, isDateString } from '../utils/clientParser';
 
-export { deleteClientFromFirestore, deleteChargeFromFirestore };
+export { 
+  deleteClientFromFirestore, 
+  deleteClientsBatchFromFirestore,
+  deleteChargeFromFirestore, 
+  deleteChargesBatchFromFirestore,
+  deleteSentLogFromFirestore,
+  deleteSentLogsBatchFromFirestore
+};
 
 export function sanitizeAppData(raw: any): AppData {
   if (!raw || typeof raw !== 'object') {

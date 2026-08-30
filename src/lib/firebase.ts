@@ -300,7 +300,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
 
 // Explicit deletion functions for user actions
 export async function deleteClientFromFirestore(clientId: string): Promise<void> {
-  if (isQuotaExhausted) return;
+  if (isQuotaExhausted || !clientId) return;
   try {
     await deleteDoc(doc(db, 'clients', clientId));
   } catch (err: any) {
@@ -313,8 +313,28 @@ export async function deleteClientFromFirestore(clientId: string): Promise<void>
   }
 }
 
+export async function deleteClientsBatchFromFirestore(clientIds: string[]): Promise<void> {
+  if (isQuotaExhausted || !clientIds || clientIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    for (const id of clientIds) {
+      if (id) {
+        batch.delete(doc(db, 'clients', id));
+      }
+    }
+    await batch.commit();
+  } catch (err: any) {
+    const errorMsg = String(err?.message || err);
+    if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
+      markQuotaExhausted();
+      return;
+    }
+    console.warn('Delete clients batch error:', err);
+  }
+}
+
 export async function deleteChargeFromFirestore(chargeId: string): Promise<void> {
-  if (isQuotaExhausted) return;
+  if (isQuotaExhausted || !chargeId) return;
   try {
     await deleteDoc(doc(db, 'charges', chargeId));
   } catch (err: any) {
@@ -324,5 +344,59 @@ export async function deleteChargeFromFirestore(chargeId: string): Promise<void>
       return;
     }
     console.warn('Delete charge error:', err);
+  }
+}
+
+export async function deleteChargesBatchFromFirestore(chargeIds: string[]): Promise<void> {
+  if (isQuotaExhausted || !chargeIds || chargeIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    for (const id of chargeIds) {
+      if (id) {
+        batch.delete(doc(db, 'charges', id));
+      }
+    }
+    await batch.commit();
+  } catch (err: any) {
+    const errorMsg = String(err?.message || err);
+    if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
+      markQuotaExhausted();
+      return;
+    }
+    console.warn('Delete charges batch error:', err);
+  }
+}
+
+export async function deleteSentLogFromFirestore(logId: string): Promise<void> {
+  if (isQuotaExhausted || !logId) return;
+  try {
+    await deleteDoc(doc(db, 'sentLogs', logId));
+  } catch (err: any) {
+    const errorMsg = String(err?.message || err);
+    if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
+      markQuotaExhausted();
+      return;
+    }
+    console.warn('Delete sentLog error:', err);
+  }
+}
+
+export async function deleteSentLogsBatchFromFirestore(logIds: string[]): Promise<void> {
+  if (isQuotaExhausted || !logIds || logIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    for (const id of logIds) {
+      if (id) {
+        batch.delete(doc(db, 'sentLogs', id));
+      }
+    }
+    await batch.commit();
+  } catch (err: any) {
+    const errorMsg = String(err?.message || err);
+    if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
+      markQuotaExhausted();
+      return;
+    }
+    console.warn('Delete sentLogs batch error:', err);
   }
 }

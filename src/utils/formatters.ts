@@ -222,7 +222,23 @@ export const getDaysUntilDue = (dueDateStr?: string): number | null => {
   return Math.round(diffMs / (1000 * 60 * 60 * 24));
 };
 
+export const isClientActive = (client: Client, charges: Charge[] = []): boolean => {
+  if (!client) return false;
+  // Se tem data de vencimento, verifica se já está vencido
+  const diff = getDaysUntilDue(client.dueDate);
+  if (diff !== null && diff < 0) return false;
+
+  // Verifica se possui alguma cobrança em atraso não paga
+  const clientPendingCharges = charges.filter((c) => c.clientId === client.id && !c.paid);
+  const hasOverdueCharge = clientPendingCharges.some((c) => {
+    const cDiff = getDaysUntilDue(c.dueDate);
+    return cDiff !== null && cDiff < 0;
+  });
+  return !hasOverdueCharge;
+};
+
 export const getClientStatusBadge = (dueDateStr?: string) => {
+
   if (!dueDateStr || typeof dueDateStr !== 'string') {
     return {
       label: 'Sem Vencimento',
