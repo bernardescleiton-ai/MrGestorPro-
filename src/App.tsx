@@ -1011,7 +1011,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 md:ml-64 p-3.5 sm:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-12">
+      <main className="flex-1 md:ml-64 p-3.5 sm:p-8 max-w-7xl w-full mx-auto pb-28 md:pb-12">
         {activeSection === 'dashboard' && (
           <DashboardView
             data={data}
@@ -1065,6 +1065,7 @@ export default function App() {
             onMarkPaid={handleMarkPaid}
             onSendWhatsApp={handleSendWhatsApp}
             onOpenRenewClient={handleOpenRenewClient}
+            onOpenEditClient={handleOpenEditClient}
             onDeleteClient={handleDeleteClient}
             onDeleteClientsBatch={handleDeleteBatch}
           />

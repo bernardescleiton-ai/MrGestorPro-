@@ -40,7 +40,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings', label: 'Config & Backup', icon: <Sliders className="w-4 h-4" /> },
   ];
 
-  const allNavItems = [...mainNavItems, ...configNavItems];
+  const mobileNavItems: { id: SectionType; label: string; icon: React.ReactNode }[] = [
+    { id: 'dashboard', label: 'Dashboard', icon: <Home className="w-5 h-5" /> },
+    { id: 'clients', label: 'Clientes', icon: <Users className="w-5 h-5" /> },
+    { id: 'due', label: 'Vencimentos', icon: <Clock className="w-5 h-5" /> },
+    { id: 'charges', label: 'Histórico', icon: <Calendar className="w-5 h-5" /> },
+    { id: 'profile', label: 'Meu Perfil', icon: <User className="w-5 h-5" /> },
+    { id: 'notices', label: 'Avisos', icon: <Bell className="w-5 h-5" /> },
+    { id: 'settings', label: 'Config', icon: <Sliders className="w-5 h-5" /> },
+  ];
 
   return (
     <>
@@ -166,26 +174,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation Bar with Scrollable / Segmented Bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0F172A]/95 backdrop-blur-md text-slate-300 border-t border-slate-800/80 flex items-center justify-around px-1 py-1.5 z-40 shadow-2xl overflow-x-auto">
-        {allNavItems.map((item) => {
-          const isActive = activeSection === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onSelectSection(item.id)}
-              className={`flex-1 min-w-[52px] flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all min-h-[44px] active:scale-95 ${
-                isActive
-                  ? 'text-white bg-blue-600/90 font-bold shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {item.icon}
-              <span className="text-[9px] mt-0.5 tracking-tight truncate max-w-full">{item.label}</span>
-            </button>
-          );
-        })}
+      {/* Mobile Bottom Navigation Bar with Tactile 3D App Tiles */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/90 z-40 shadow-[0_-10px_30px_rgba(0,0,0,0.7)] px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <div className="flex items-center justify-start sm:justify-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
+          {mobileNavItems.map((item) => {
+            const isActive = activeSection === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => onSelectSection(item.id)}
+                className={`flex-1 min-w-[68px] max-w-[86px] min-h-[58px] flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all duration-150 cursor-pointer select-none active:translate-y-1 ${
+                  isActive
+                    ? 'bg-gradient-to-b from-blue-500 via-blue-600 to-blue-700 text-white border-t-2 border-t-blue-300/80 border-x border-blue-500 border-b-[3.5px] border-b-blue-950 shadow-lg shadow-blue-600/30 ring-1 ring-blue-400/50'
+                    : 'bg-gradient-to-b from-slate-800 via-slate-800 to-slate-900 text-slate-300 hover:text-white border-t border-t-slate-600/70 border-x border-slate-700/60 border-b-[3.5px] border-b-slate-950 shadow-md shadow-black/50 hover:from-slate-750'
+                }`}
+              >
+                {isActive && (
+                  <span className="w-4 h-0.5 bg-white/90 rounded-full shadow-[0_0_6px_rgba(255,255,255,0.9)] mb-0.5" />
+                )}
+                <div className={`transition-transform duration-150 ${isActive ? 'scale-110 drop-shadow-sm' : ''}`}>
+                  {item.icon}
+                </div>
+                <span
+                  className={`text-[9.5px] sm:text-[10px] mt-0.5 tracking-tight truncate max-w-full leading-tight ${
+                    isActive ? 'font-black text-white drop-shadow-xs' : 'font-bold text-slate-300'
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
     </>
   );
 };
+

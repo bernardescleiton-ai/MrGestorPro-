@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Bell, RefreshCw, Calendar, Clock, AlertTriangle, AlertCircle, Search, CheckCircle2, MessageSquare, Phone, Trash2, CheckSquare, Square } from 'lucide-react';
+import { Bell, RefreshCw, Calendar, Clock, AlertTriangle, AlertCircle, Search, CheckCircle2, MessageSquare, Phone, Trash2, CheckSquare, Square, Edit } from 'lucide-react';
 import { Client, Charge, CompanySettings } from '../types';
 import { dateBR, formatDateTimeBR, getChargeStatus, getDaysUntilDue, getClientStatusBadge, openWhatsApp } from '../utils/formatters';
 
@@ -13,6 +13,7 @@ interface DueViewProps {
   onMarkPaid: (chargeId: string) => void;
   onSendWhatsApp?: (client: Client, charge?: Charge) => void;
   onOpenRenewClient?: (client: Client) => void;
+  onOpenEditClient?: (client: Client) => void;
   onDeleteClient?: (clientId: string) => void;
   onDeleteClientsBatch?: (clientIds: string[]) => void;
 }
@@ -25,6 +26,7 @@ export const DueView: React.FC<DueViewProps> = ({
   onMarkPaid,
   onSendWhatsApp,
   onOpenRenewClient,
+  onOpenEditClient,
   onDeleteClient,
   onDeleteClientsBatch,
 }) => {
@@ -551,6 +553,18 @@ export const DueView: React.FC<DueViewProps> = ({
                           title="Renovar período deste cliente"
                         >
                           <RefreshCw className="w-3.5 h-3.5" /> Renovar
+                        </button>
+                      )}
+
+                      {client && onOpenEditClient && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenEditClient(client)}
+                          className="p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition-colors active:scale-95 flex items-center gap-1 cursor-pointer"
+                          title={`Editar cadastro do cliente ${client.name}`}
+                        >
+                          <Edit className="w-3.5 h-3.5 text-slate-600" />
+                          <span className="hidden sm:inline">Editar</span>
                         </button>
                       )}
 
