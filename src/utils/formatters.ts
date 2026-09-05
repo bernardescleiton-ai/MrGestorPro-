@@ -116,12 +116,15 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
   const encodedText = text ? encodeForWhatsApp(text) : '';
   const method = settings?.whatsappMethod || 'direct_app';
 
-  let targetUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
+  let targetUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
 
   if (method === 'web') {
     targetUrl = `https://web.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
   } else if (method === 'wame') {
     targetUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
+  } else {
+    // direct_app: api.whatsapp.com directly passes intent to WhatsApp / WhatsApp Business
+    targetUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
   }
 
   // Use a temporary anchor to guarantee clean external opening across mobile, desktop, and iframe sandboxes

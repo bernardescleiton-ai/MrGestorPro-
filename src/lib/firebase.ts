@@ -152,7 +152,18 @@ export function subscribeToAppData(
   let clients: Client[] = [];
   let charges: Charge[] = [];
   let sentLogs: SentMessageLog[] = [];
-  let settings: CompanySettings = { ...initialAppData.settings };
+  let settings: CompanySettings = (() => {
+    try {
+      const saved = localStorage.getItem('gc_v1_data');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.settings) {
+          return { ...initialAppData.settings, ...parsed.settings };
+        }
+      }
+    } catch {}
+    return { ...initialAppData.settings };
+  })();
   let updatedAt = Date.now();
 
   const emit = () => {

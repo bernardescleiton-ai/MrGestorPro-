@@ -1,4 +1,4 @@
-import { AppData } from '../types';
+import { AppData, CompanySettings, SystemRestorePoint } from '../types';
 import { initialAppData } from '../data/initialData';
 import { 
   subscribeToAppData, 
@@ -16,7 +16,6 @@ import {
   deleteRestorePointFromFirestore
 } from './firebase';
 import { cleanClientName, isDateString } from '../utils/clientParser';
-import { SystemRestorePoint } from '../types';
 
 export { 
   deleteClientFromFirestore, 
@@ -186,16 +185,30 @@ export function subscribeToApiData(
   );
 }
 
-export function mergeAppData(_local: AppData, cloud: AppData): AppData {
+export function mergeAppData(local: AppData, cloud: AppData): AppData {
+  const localSettings: Partial<CompanySettings> = local?.settings || {};
+  const cloudSettings: Partial<CompanySettings> = cloud?.settings || {};
+
+  // Safely merge settings, preserving local custom settings and images if cloud didn't provide them
+  const mergedSettings: CompanySettings = {
+    ...initialAppData.settings,
+    ...localSettings,
+    ...cloudSettings,
+    messageTemplateImage: cloudSettings.messageTemplateImage || localSettings.messageTemplateImage || '',
+    messageTemplateImageName: cloudSettings.messageTemplateImageName || localSettings.messageTemplateImageName || '',
+    whatsappMethod: cloudSettings.whatsappMethod || localSettings.whatsappMethod || 'direct_app',
+    messageSendMode: cloudSettings.messageSendMode || localSettings.messageSendMode || 'image_and_text',
+  };
+
   return {
-    clients: Array.isArray(cloud.clients) ? cloud.clients : [],
-    charges: Array.isArray(cloud.charges) ? cloud.charges : [],
-    settings: {
-      ...initialAppData.settings,
-      ...(cloud.settings || {}),
-    },
-    sentLogs: Array.isArray(cloud.sentLogs) ? cloud.sentLogs : [],
-    updatedAt: typeof cloud.updatedAt === 'number' ? cloud.updatedAt : Date.now(),
+    clients: Array.isArray(cloud.clients) ? cloud.clients : (local?.clients || []),
+    charges: Array.isArray(cloud.charges) ? cloud.charges : (local?.charges || []),
+    settings: mergedSettings,
+    sentLogs: Array.isArray(cloud.sentLogs) ? cloud.sentLogs : (local?.sentLogs || []),
+    updatedAt: Math.max(
+      typeof cloud.updatedAt === 'number' ? cloud.updatedAt : 0,
+      typeof local?.updatedAt === 'number' ? local.updatedAt : 0
+    ),
   };
 }
 
