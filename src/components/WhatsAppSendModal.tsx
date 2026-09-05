@@ -20,10 +20,9 @@ import { getDefaultMessage, openWhatsAppLink, formatDateTimeBR, dateBR } from '.
 import {
   copyImageToClipboard,
   copyTextToClipboard,
-  dataUrlToFile,
   downloadImage,
-  canShareFiles
 } from '../utils/imageHelper';
+import { sendAutomatedWhatsApp } from '../utils/automatedSender';
 
 interface WhatsAppSendModalProps {
   isOpen: boolean;
@@ -96,49 +95,28 @@ export const WhatsAppSendModal: React.FC<WhatsAppSendModalProps> = ({
     showToastNotice('📥 Imagem baixada com sucesso!');
   };
 
-  // Primary sending handler
+  // Primary automated sending handler
   const handleProceedSend = async () => {
     setIsSending(true);
 
     try {
-      const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      const isShareSupported = canShareFiles();
+      const result = await sendAutomatedWhatsApp({
+        client,
+        charge,
+        settings: {
+          ...settings,
+          messageSendMode: selectedMode,
+        },
+        onConfirmSent,
+      });
 
-      // Case 1: On Mobile and has native file sharing capabilities
-      if (isMobile && isShareSupported && hasImage && selectedMode !== 'text_only') {
-        const file = dataUrlToFile(imageSrc, imageName);
-        try {
-          await navigator.share({
-            files: [file],
-            text: textToSend || undefined,
-            title: `Aviso - ${client.name}`,
-          });
-          onConfirmSent(client, charge, textToSend || 'Envio de foto via WhatsApp');
-          onClose();
-          return;
-        } catch (shareErr: any) {
-          // If user aborted or share failed, fallback to standard link
-          if (shareErr.name === 'AbortError') {
-            setIsSending(false);
-            return;
-          }
-          console.warn('Native share failed, falling back:', shareErr);
-        }
+      if (!result.aborted) {
+        onClose();
       }
-
-      // Case 2: Desktop or standard workflow
-      // Automatically copy the image to clipboard so user can simply press Ctrl+V in WhatsApp
-      if (hasImage && selectedMode !== 'text_only') {
-        copyImageToClipboard(imageSrc).catch(() => {});
-      }
-
-      // Open WhatsApp with text (or blank if image_only)
-      openWhatsAppLink(client.phone, textToSend, settings);
-
-      onConfirmSent(client, charge, textToSend || 'Envio de foto de aviso');
-      onClose();
     } catch (err) {
-      console.error('Error sending WhatsApp:', err);
+      console.warn('Proceed send error:', err);
+      openWhatsAppLink(client.phone, textToSend, settings);
+      onClose();
     } finally {
       setIsSending(false);
     }
@@ -329,12 +307,12 @@ export const WhatsAppSendModal: React.FC<WhatsAppSendModalProps> = ({
           </div>
 
           {/* Fast Helper Tip */}
-          <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-2xl flex items-start gap-2.5">
-            <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-blue-900 leading-relaxed">
+          <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-start gap-2.5">
+            <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-emerald-950 leading-relaxed">
               {selectedMode !== 'text_only' && hasImage ? (
                 <span>
-                  <strong>Como funciona o envio com foto:</strong> No celular, o WhatsApp abrirá com a foto e texto prontos. No computador, ao clicar em <em>Abrir WhatsApp & Enviar</em>, a foto é copiada automaticamente para você colar (<strong>Ctrl + V</strong>) na conversa!
+                  <strong>⚡ Envio 100% Automatizado:</strong> Ao clicar no botão abaixo, o aplicativo já anexa a foto e preenche a mensagem automaticamente no WhatsApp para enviar na hora. Sem precisar baixar arquivos nem buscar em anexos manualmente!
                 </span>
               ) : (
                 <span>
@@ -396,7 +374,7 @@ export const WhatsAppSendModal: React.FC<WhatsAppSendModalProps> = ({
               className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
             >
               <MessageSquare className="w-4 h-4 fill-white" />
-              <span>Abrir WhatsApp & Enviar</span>
+              <span>⚡ Enviar Foto e Mensagem Agora</span>
               <ExternalLink className="w-3.5 h-3.5 text-emerald-200" />
             </button>
           </div>

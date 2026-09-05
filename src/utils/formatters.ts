@@ -135,20 +135,30 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
     return;
   }
 
-  // Method 'direct_app' (Default - Ultra fast direct app launch for WhatsApp & WhatsApp Business)
+  // Method 'direct_app' (Default - Universal mobile & desktop handler)
   const textParam = encodedText ? `&text=${encodedText}` : '';
-  const appUrl = `whatsapp://send?phone=${fullPhone}${textParam}`;
+  const universalUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${textParam}`;
+  const customSchemeUrl = `whatsapp://send?phone=${fullPhone}${textParam}`;
 
   const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   if (isMobile) {
-    // Direct OS handler on Mobile (Android / iOS)
-    window.location.href = appUrl;
+    // In Android APK WebViews, Chrome, and iOS:
+    // https://api.whatsapp.com is handled directly by Android OS App Links / iOS Universal Links.
+    // It opens WhatsApp without triggering ERR_UNKNOWN_URL_SCHEME or crashing APK WebViews.
+    try {
+      const opened = window.open(universalUrl, '_blank');
+      if (!opened) {
+        window.location.href = universalUrl;
+      }
+    } catch {
+      window.location.href = universalUrl;
+    }
   } else {
-    // Desktop: Try direct protocol scheme
+    // Desktop: Try direct protocol scheme, fallback to web/universal
     try {
       const a = document.createElement('a');
-      a.href = appUrl;
+      a.href = customSchemeUrl;
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
@@ -158,7 +168,7 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
         }
       }, 500);
     } catch {
-      window.open(`https://web.whatsapp.com/send?phone=${fullPhone}${textParam}`, '_blank');
+      window.open(universalUrl, '_blank');
     }
   }
 };

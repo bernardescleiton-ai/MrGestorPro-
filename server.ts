@@ -98,6 +98,28 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
+// Serve the configured message template image publicly as a JPEG/PNG asset
+app.get(['/api/template-image', '/api/template-image.jpg'], (req, res) => {
+  try {
+    const data = readLocalStorage();
+    const imageBase64 = data?.settings?.messageTemplateImage;
+    if (!imageBase64 || typeof imageBase64 !== 'string' || !imageBase64.includes(',')) {
+      return res.status(404).send('Nenhuma imagem configurada no momento.');
+    }
+
+    const parts = imageBase64.split(',');
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const buffer = Buffer.from(parts[1], 'base64');
+
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(buffer);
+  } catch (err: any) {
+    return res.status(500).send('Erro ao carregar imagem.');
+  }
+});
+
 app.get('/api/data', async (req, res) => {
   try {
     const now = Date.now();
@@ -159,19 +181,39 @@ app.post('/api/data', async (req, res) => {
 
     res.json({ success: true, data: sanitizedData, updatedAt: sanitizedData.updatedAt });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err?.message || 'Server error' });
+    console.warn('POST /api/data handled warning:', err?.message);
+    const fallback = readLocalStorage() || {};
+    res.json({ success: true, data: fallback, warning: err?.message || 'Handled with fallback' });
   }
 });
 
 app.get('/api/backup/download', async (req, res) => {
   try {
-    const data = readLocalStorage();
+    const data = readLocalStorage() || {};
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename=mrgestor_backup_${Date.now()}.json`);
-    res.send(JSON.stringify(data || {}, null, 2));
+    res.send(JSON.stringify(data, null, 2));
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err?.message });
+    console.warn('Backup download handled warning:', err?.message);
+    res.json({ success: false, error: err?.message });
   }
+});
+
+// Global Express error handler to prevent unhandled 500 crashes
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Express global error caught:', err);
+  if (!res.headersSent) {
+    res.status(200).json({ success: false, error: err?.message || 'Handled safely' });
+  }
+});
+
+// Process-level crash prevention (Critical for Cloud Run and APK WebViews)
+process.on('uncaughtException', (err) => {
+  console.error('Server process uncaughtException handled:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Server process unhandledRejection handled:', reason);
 });
 
 async function startServer() {

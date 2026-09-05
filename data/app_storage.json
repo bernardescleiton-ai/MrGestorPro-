@@ -3,8 +3,9 @@
   "charges": [],
   "settings": {
     "name": "MrGestor",
-    "phone": ""
+    "phone": "",
+    "messageSendMode": "text_only"
   },
   "sentLogs": [],
-  "updatedAt": 12345
+  "updatedAt": 1788568106431
 }

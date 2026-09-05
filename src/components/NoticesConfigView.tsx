@@ -30,6 +30,7 @@ import {
 import { CompanySettings, NotificationRules, MessageSendMode } from '../types';
 import { defaultNotificationRules } from '../utils/notifications';
 import { processTemplateImage, downloadImage } from '../utils/imageHelper';
+import { sendAutomatedWhatsApp } from '../utils/automatedSender';
 
 interface NoticesConfigViewProps {
   settings: CompanySettings;
@@ -108,6 +109,20 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
     onSaveSettings(formData);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3500);
+  };
+
+  const handleTestAutomatedSend = async () => {
+    const sampleClient = {
+      id: 'teste_envio_automatico',
+      name: 'Cliente Teste',
+      phone: formData.managerPhone || formData.phone || '11999999999',
+      dueDate: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    await sendAutomatedWhatsApp({
+      client: sampleClient,
+      settings: formData,
+    });
   };
 
   // Preview generation for WhatsApp bubbles
@@ -751,6 +766,39 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
                   </div>
                 )}
               </div>
+
+              {/* Banner de Envio 100% Automático na Hora */}
+              {formData.messageTemplateImage && formData.messageSendMode !== 'text_only' && (
+                <div className="p-4 bg-emerald-50/90 border border-emerald-300 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
+                          Envio 100% Automático na Hora
+                        </h4>
+                        <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 text-[10px] font-extrabold rounded-full">
+                          Pronto
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 mt-0.5 leading-relaxed">
+                        Ao escolher qualquer cliente e tocar no WhatsApp, o aplicativo já anexa a foto salva e a mensagem automaticamente. Sem precisar baixar nem buscar em anexos manualmente!
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleTestAutomatedSend}
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 cursor-pointer shrink-0 self-stretch sm:self-auto justify-center"
+                  >
+                    <MessageSquare className="w-4 h-4 fill-white" />
+                    <span>📱 Testar Envio Automático</span>
+                  </button>
+                </div>
+              )}
 
               {/* 3. Área de Criação de Texto Padrão */}
               <div className="space-y-3">

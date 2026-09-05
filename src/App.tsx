@@ -17,6 +17,7 @@ import { ClientHistoryModal } from './components/ClientHistoryModal';
 import { RenewalModal } from './components/RenewalModal';
 import { WhatsAppSendModal } from './components/WhatsAppSendModal';
 import { RenewalSuccessToast, RenewalToastData } from './components/RenewalSuccessToast';
+import { sendAutomatedWhatsApp } from './utils/automatedSender';
 import { openWhatsApp, openDirectWhatsApp, openWhatsAppLink, normalizePhone, getDefaultMessage, encodeForWhatsApp, formatDateTimeBR, calculateRenewalDueDate } from './utils/formatters';
 import { checkAndTriggerDeviceNotifications } from './utils/notifications';
 import { 
@@ -911,12 +912,12 @@ export default function App() {
     });
   };
 
-  const handleSendWhatsApp = (client: Client, charge?: Charge) => {
+  const handleSendWhatsApp = async (client: Client, charge?: Charge) => {
     const hasImage = Boolean(data.settings.messageTemplateImage);
     const sendMode = data.settings.messageSendMode || (hasImage ? 'image_and_text' : 'text_only');
 
-    // Se houver template de imagem configurado e modo não for apenas texto, abre modal com as opções de foto e texto
-    if (hasImage && sendMode !== 'text_only') {
+    // Se o usuário desativou explicitamente o envio automático direto nas configurações, abre o modal
+    if (data.settings.autoSendDirect === false && hasImage && sendMode !== 'text_only') {
       setWhatsAppSendModal({
         isOpen: true,
         client,
@@ -925,18 +926,13 @@ export default function App() {
       return;
     }
 
-    // Envio direto em texto (1 clique rápido)
-    if (charge) {
-      openWhatsApp(client, charge, data.settings);
-    } else {
-      openDirectWhatsApp(client, data.settings);
-    }
-
-    recordSentMessage(
+    // Envio 100% automatizado direto na hora (foto + texto sem precisar baixar nem anexar manualmente)
+    await sendAutomatedWhatsApp({
       client,
       charge,
-      charge ? getDefaultMessage(client, charge, data.settings) : 'Lembrete de vencimento enviado'
-    );
+      settings: data.settings,
+      onConfirmSent: recordSentMessage,
+    });
   };
 
   const handleDeleteSentLog = (logId: string) => {
@@ -1044,7 +1040,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 md:ml-64 p-3.5 sm:p-8 max-w-7xl w-full mx-auto pb-28 md:pb-12">
+      <main className="flex-1 md:ml-64 p-3.5 sm:p-8 max-w-7xl w-full mx-auto pb-32 md:pb-12">
         {activeSection === 'dashboard' && (
           <DashboardView
             data={data}

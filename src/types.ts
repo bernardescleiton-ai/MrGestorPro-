@@ -56,6 +56,7 @@ export interface CompanySettings {
   messageSendMode?: MessageSendMode; // Modo de envio: apenas texto, apenas imagem ou foto e texto juntos
   messageTemplateImage?: string; // Imagem template base64 (.jpg, .jpeg, .png)
   messageTemplateImageName?: string; // Nome original do arquivo da imagem
+  autoSendDirect?: boolean; // Envio 100% automático direto na hora ao clicar no cliente (padrão true)
   renewalMessageTemplate?: string; // Template da mensagem de renovação
   reminderMessageTemplate?: string; // Template da mensagem de lembrete preventivo
   enableRenewalWhatsAppMessage?: boolean; // Liga/Desliga geral para mensagem de renovação

@@ -12,14 +12,14 @@ export interface ProcessedImageResult {
 
 /**
  * Reads and compresses an image file (.jpg, .jpeg, .png)
- * Automatically resizes to max dimensions (default 1200x1200) to keep base64 payload small (<150KB)
- * while preserving high visual quality for WhatsApp messages.
+ * Automatically resizes to max dimensions (750x750) and exports as high-efficiency JPEG.
+ * Enforces a strict size limit (<65KB) so base64 strings never exceed Firestore document limits,
+ * never overflow localStorage quota, and never crash mobile APK WebViews.
  */
 export async function processTemplateImage(
   file: File,
-  maxWidth = 1200,
-  maxHeight = 1200,
-  quality = 0.84
+  maxWidth = 750,
+  maxHeight = 750
 ): Promise<ProcessedImageResult> {
   return new Promise((resolve, reject) => {
     // Validate file type
@@ -42,7 +42,7 @@ export async function processTemplateImage(
         let width = img.width;
         let height = img.height;
 
-        // Downscale while preserving aspect ratio
+        // Downscale to max dimensions
         if (width > maxWidth || height > maxHeight) {
           if (width / height > maxWidth / maxHeight) {
             height = Math.round((height * maxWidth) / width);
@@ -62,22 +62,33 @@ export async function processTemplateImage(
           return;
         }
 
-        // Draw smoothly
+        // Fill background white in case of transparent PNG converted to JPEG
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Export as PNG if it was PNG, or JPEG otherwise
-        const outputMime = isPng ? 'image/png' : 'image/jpeg';
-        const dataUrl = canvas.toDataURL(outputMime, isPng ? undefined : quality);
+        // Always export as image/jpeg with adaptive quality to guarantee payload < 65KB
+        let quality = 0.76;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
 
-        // Approximate size in bytes
-        const head = `data:${outputMime};base64,`;
-        const sizeBytes = Math.round(((dataUrl.length - head.length) * 3) / 4);
+        // If string exceeds 85,000 chars (~64KB binary), reduce quality
+        if (dataUrl.length > 85000) {
+          quality = 0.62;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+        if (dataUrl.length > 85000) {
+          quality = 0.50;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+
+        const sizeBytes = Math.round(((dataUrl.length - 'data:image/jpeg;base64,'.length) * 3) / 4);
 
         resolve({
           dataUrl,
-          name: file.name,
+          name: file.name.replace(/\.png$/i, '.jpg'),
           width,
           height,
           sizeBytes,
@@ -123,7 +134,7 @@ export async function dataUrlToPngBlob(dataUrl: string): Promise<Blob> {
 /**
  * Converts a data URL to a File object with proper MIME type
  */
-export function dataUrlToFile(dataUrl: string, filename: string): File {
+export function dataUrlToFile(dataUrl: string, filename = 'aviso_cobranca.jpg'): File {
   const parts = dataUrl.split(',');
   const mimeMatch = parts[0].match(/:(.*?);/);
   const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
@@ -135,7 +146,13 @@ export function dataUrlToFile(dataUrl: string, filename: string): File {
     u8arr[i] = byteString.charCodeAt(i);
   }
 
-  return new File([u8arr], filename, { type: mime });
+  // Sanitize filename to clean ASCII to ensure Android OS share intents accept the file without URI errors
+  const safeFilename = (filename || 'aviso_cobranca.jpg')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]/g, '_') || 'aviso_cobranca.jpg';
+
+  return new File([u8arr.buffer], safeFilename, { type: mime, lastModified: Date.now() });
 }
 
 /**
