@@ -49,7 +49,7 @@ export async function sendAutomatedWhatsApp({
     msg += `\n\n🖼️ Segue o seu *Aviso de Vencimento*:`;
     if (dueStr) msg += `\n📅 Vencimento: *${dueStr}*`;
     if (amountStr) msg += `\n💰 Valor: *${amountStr}*`;
-    msg += `\n\n👉 *Toque no link para ver o aviso completo:*`;
+    msg += `\n\n👉 *Toque no link para ver o cartaz com a foto:*`;
     msg += `\n${publicNoticeUrl}`;
     if (settings.pixKey) {
       msg += `\n\n🔑 Chave PIX: *${settings.pixKey}*`;
@@ -61,7 +61,7 @@ export async function sendAutomatedWhatsApp({
   } else if (hasImage && sendMode === 'image_and_text') {
     // Append the direct notice link if not already inside the template
     if (!textToSend.includes('/aviso') && !textToSend.includes('/api/template-image')) {
-      textToSend += `\n\n🖼️ *Visualizar Aviso / Cartaz Oficial:*\n${publicNoticeUrl}`;
+      textToSend += `\n\n🖼️ *Visualizar Cartaz do Aviso:*\n${publicNoticeUrl}`;
     }
   }
 
@@ -71,69 +71,30 @@ export async function sendAutomatedWhatsApp({
     if (onConfirmSent) {
       onConfirmSent(client, charge, textToSend || 'Lembrete de vencimento enviado');
     }
-    return { success: true, method: 'whatsapp_link' };
+    return { success: true, method: 'whatsapp_link', textSent: textToSend };
   }
 
-  // 2. Image sending
+  // 2. Image sending:
+  // Copy image to clipboard in the background for WhatsApp Web/Desktop (Ctrl+V)
   const imageSrc = settings.messageTemplateImage!;
-  const imageName = settings.messageTemplateImageName || 'aviso_cobranca.jpg';
-
-  // Prepare safe file
-  let file: File | null = null;
+  let copied = false;
   try {
-    file = dataUrlToFile(imageSrc, imageName);
-  } catch (err) {
-    console.warn('Could not parse image to File:', err);
+    copied = await copyImageToClipboard(imageSrc);
+  } catch {
+    copied = false;
   }
 
-  // Try native Web Share with files if supported (Android Chrome, PWA, iOS)
-  let canShare = false;
-  if (file && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-    try {
-      if (typeof navigator.canShare === 'function') {
-        canShare = navigator.canShare({ files: [file] });
-      }
-    } catch {
-      canShare = false;
-    }
-  }
-
-  if (canShare && file) {
-    try {
-      await navigator.share({
-        files: [file],
-        text: textToSend,
-        title: `Aviso - ${client.name}`,
-      });
-
-      if (onConfirmSent) {
-        onConfirmSent(client, charge, textToSend || 'Envio de aviso com foto');
-      }
-      return { success: true, method: 'native_share', textSent: textToSend };
-    } catch (shareErr: any) {
-      if (shareErr?.name === 'AbortError') {
-        // User closed or dismissed the share sheet
-        return { success: false, method: 'native_share', aborted: true };
-      }
-      console.warn('Native share failed or not allowed, opening direct WhatsApp chat:', shareErr);
-    }
-  }
-
-  // 3. Fallback for WebViews, Desktop, and environments without direct native file sharing:
-  // Automatically copy image to clipboard so user can press Ctrl+V in WhatsApp Web
-  const copied = await copyImageToClipboard(imageSrc).catch(() => false);
-
-  // Save to device gallery as background helper
-  try {
-    downloadImage(imageSrc, imageName);
-  } catch {}
-
-  // Open WhatsApp directly with phone & text pre-filled (including the rich preview link)
+  // Immediately open WhatsApp with phone & message populated
   openWhatsAppLink(client.phone, textToSend, settings);
 
   if (onConfirmSent) {
     onConfirmSent(client, charge, textToSend || 'Envio de aviso com foto');
   }
 
-  return { success: true, method: 'whatsapp_link', copiedToClipboard: copied, textSent: textToSend };
+  return { 
+    success: true, 
+    method: 'whatsapp_link', 
+    copiedToClipboard: copied, 
+    textSent: textToSend 
+  };
 }

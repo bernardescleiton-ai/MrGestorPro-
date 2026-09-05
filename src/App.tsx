@@ -263,7 +263,10 @@ export default function App() {
         data: {
           clients: currentAppData ? JSON.parse(JSON.stringify(currentAppData.clients)) : [],
           charges: currentAppData ? JSON.parse(JSON.stringify(currentAppData.charges)) : [],
-          settings: currentAppData ? JSON.parse(JSON.stringify(currentAppData.settings)) : {},
+          settings: currentAppData ? {
+            ...JSON.parse(JSON.stringify(currentAppData.settings)),
+            messageTemplateImage: undefined, // Protect localStorage quota from heavy image duplicates
+          } : {},
         },
       };
 
@@ -1332,10 +1335,7 @@ export default function App() {
                   Foto copiada para a área de transferência!
                 </p>
                 <p className="text-[11px] text-slate-300 leading-snug">
-                  No WhatsApp Web/PC, basta pressionar <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded">Ctrl + V</strong> (ou clicar com o botão direito e <em>Colar</em>) para enviar a imagem junto com o texto.
-                </p>
-                <p className="text-[10px] text-slate-400">
-                  No celular: a imagem foi salva na galeria para anexar via 📎 se desejar.
+                  No WhatsApp Web/PC, basta pressionar <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded">Ctrl + V</strong> para colar a foto no chat. O link com a imagem também foi adicionado à mensagem.
                 </p>
               </div>
 
@@ -1343,9 +1343,12 @@ export default function App() {
                 {data.settings.messageTemplateImage && (
                   <button
                     type="button"
-                    onClick={async () => {
-                      await copyImageToClipboard(data.settings.messageTemplateImage!);
-                      alert('Foto copiada para a área de transferência!');
+                    onClick={async (e) => {
+                      const ok = await copyImageToClipboard(data.settings.messageTemplateImage!);
+                      const btn = e.currentTarget;
+                      const originalText = btn.innerHTML;
+                      btn.innerText = ok ? '✓ Copiada!' : 'Erro ao copiar';
+                      setTimeout(() => { btn.innerHTML = originalText; }, 2000);
                     }}
                     className="flex-1 py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >

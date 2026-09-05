@@ -104,16 +104,25 @@ app.get(['/api/template-image', '/api/template-image.jpg'], async (req, res) => 
     let data = readLocalStorage();
     let imageBase64 = data?.settings?.messageTemplateImage;
 
-    // If not in local storage yet, check Firestore
+    // If not in local storage yet, check Firestore (both app_settings and app_state)
     if ((!imageBase64 || typeof imageBase64 !== 'string') && db) {
       try {
-        const docRef = doc(db, 'app_state', APP_STATE_DOC_ID);
-        const snapshot = await getDoc(docRef);
-        if (snapshot.exists()) {
-          const cloudData = snapshot.data();
-          imageBase64 = cloudData?.settings?.messageTemplateImage;
-          if (imageBase64) {
-            writeLocalStorage(cloudData);
+        const settingsDocRef = doc(db, 'app_settings', 'main_settings');
+        const settingsSnap = await getDoc(settingsDocRef);
+        if (settingsSnap.exists()) {
+          const settingsData = settingsSnap.data();
+          imageBase64 = settingsData?.settings?.messageTemplateImage;
+        }
+
+        if (!imageBase64) {
+          const docRef = doc(db, 'app_state', APP_STATE_DOC_ID);
+          const snapshot = await getDoc(docRef);
+          if (snapshot.exists()) {
+            const cloudData = snapshot.data();
+            imageBase64 = cloudData?.settings?.messageTemplateImage;
+            if (imageBase64) {
+              writeLocalStorage(cloudData);
+            }
           }
         }
       } catch {}
@@ -133,6 +142,38 @@ app.get(['/api/template-image', '/api/template-image.jpg'], async (req, res) => 
     return res.send(buffer);
   } catch (err: any) {
     return res.status(500).send('Erro ao carregar imagem.');
+  }
+});
+
+// Dedicated endpoint to upload and store message template image reliably
+app.post('/api/upload-template-image', async (req, res) => {
+  try {
+    const { image, name } = req.body;
+    if (!image || typeof image !== 'string') {
+      return res.status(400).json({ success: false, error: 'Imagem inválida' });
+    }
+    const currentData = readLocalStorage() || {};
+    currentData.settings = {
+      ...(currentData.settings || {}),
+      messageTemplateImage: image,
+      messageTemplateImageName: name || 'aviso_cobranca.jpg',
+      messageSendMode: currentData.settings?.messageSendMode === 'text_only' ? 'image_and_text' : (currentData.settings?.messageSendMode || 'image_and_text'),
+    };
+    writeLocalStorage(currentData);
+
+    if (db) {
+      try {
+        const settingsRef = doc(db, 'app_settings', 'main_settings');
+        await setDoc(settingsRef, {
+          settings: currentData.settings,
+          updatedAt: Date.now(),
+        }, { merge: true });
+      } catch {}
+    }
+
+    return res.json({ success: true, settings: currentData.settings });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Erro ao salvar imagem' });
   }
 });
 

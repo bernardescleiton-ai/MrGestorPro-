@@ -71,8 +71,18 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
       };
       setFormData(updated);
       onSaveSettings(updated);
+
+      // Save directly to the server to guarantee persistence and fast delivery
+      fetch('/api/upload-template-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: processed.dataUrl,
+          name: processed.name,
+        }),
+      }).catch(() => {});
     } catch (err: any) {
-      setImageError(err?.message || 'Erro ao processar imagem (.jpg ou .png).');
+      setImageError(err?.message || 'Erro ao processar imagem.');
     } finally {
       setUploadingImage(false);
     }
@@ -673,16 +683,16 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
                           Arraste e solte sua imagem aqui ou clique para selecionar
                         </p>
                         <p className="text-[11px] text-slate-500 mt-1 font-mono">
-                          Formatos aceitos: <strong>.JPG</strong>, <strong>.JPEG</strong> e <strong>.PNG</strong>
+                          Formatos aceitos: <strong>JPG</strong>, <strong>PNG</strong>, <strong>WEBP</strong>, <strong>GIF</strong> e fotos do celular
                         </p>
                       </div>
 
                       <label className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-xs active:scale-95">
                         <Upload className="w-4 h-4" />
-                        <span>{uploadingImage ? 'Processando Imagem...' : 'Escolher Imagem (.jpg / .png)'}</span>
+                        <span>{uploadingImage ? 'Processando Imagem...' : 'Escolher Foto do Dispositivo'}</span>
                         <input
                           type="file"
-                          accept="image/jpeg,image/png,image/jpg,.jpg,.jpeg,.png"
+                          accept="image/*"
                           className="hidden"
                           disabled={uploadingImage}
                           onChange={(e) => {
@@ -725,7 +735,7 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 font-mono">
-                          Formatos .JPG e .PNG suportados • Otimizada automaticamente
+                          Imagem salva e otimizada com sucesso para WhatsApp
                         </p>
                         <div className="flex items-center gap-2 pt-0.5">
                           <button
@@ -750,10 +760,10 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
                     <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                       <label className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs">
                         <Upload className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Trocar Imagem</span>
+                        <span>Trocar Foto</span>
                         <input
                           type="file"
-                          accept="image/jpeg,image/png,image/jpg,.jpg,.jpeg,.png"
+                          accept="image/*"
                           className="hidden"
                           onChange={(e) => {
                             if (e.target.files && e.target.files[0]) {

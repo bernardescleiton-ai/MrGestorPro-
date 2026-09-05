@@ -116,34 +116,29 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
   const encodedText = text ? encodeForWhatsApp(text) : '';
   const method = settings?.whatsappMethod || 'direct_app';
 
+  let targetUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
+
   if (method === 'web') {
-    const textParam = encodedText ? `&text=${encodedText}` : '';
-    window.open(`https://web.whatsapp.com/send?phone=${fullPhone}${textParam}`, '_blank');
-    return;
+    targetUrl = `https://web.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
+  } else if (method === 'wame') {
+    targetUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
   }
 
-  if (method === 'wame') {
-    const textParam = encodedText ? `?text=${encodedText}` : '';
-    window.open(`https://wa.me/${fullPhone}${textParam}`, '_blank');
-    return;
-  }
-
-  // Method 'direct_app' (Default - Universal mobile & desktop handler)
-  const waUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
-  const apiSendUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
-
-  const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-  if (isMobile) {
-    // In Android & iOS: wa.me / api.whatsapp.com automatically hand off to the native WhatsApp app with pre-filled text
-    try {
-      window.location.href = waUrl;
-    } catch {
-      window.open(apiSendUrl, '_blank');
-    }
-  } else {
-    // Desktop: Opens WhatsApp Desktop or WhatsApp Web with complete text populated
-    window.open(waUrl, '_blank');
+  // Use a temporary anchor to guarantee clean external opening across mobile, desktop, and iframe sandboxes
+  try {
+    const a = document.createElement('a');
+    a.href = targetUrl;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (document.body.contains(a)) {
+        document.body.removeChild(a);
+      }
+    }, 150);
+  } catch (err) {
+    window.open(targetUrl, '_blank');
   }
 };
 
