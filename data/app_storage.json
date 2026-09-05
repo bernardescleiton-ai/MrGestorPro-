@@ -4,7 +4,7 @@
   "settings": {
     "name": "MrGestor",
     "phone": "",
-    "messageSendMode": "text_only"
+    "whatsappMethod": "direct_app"
   },
   "sentLogs": [],
   "updatedAt": 1788568106431

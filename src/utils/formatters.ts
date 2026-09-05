@@ -116,32 +116,60 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
   const encodedText = text ? encodeForWhatsApp(text) : '';
   const method = settings?.whatsappMethod || 'direct_app';
 
-  let targetUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
-
   if (method === 'web') {
-    targetUrl = `https://web.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
-  } else if (method === 'wame') {
-    targetUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
-  } else {
-    // direct_app: api.whatsapp.com directly passes intent to WhatsApp / WhatsApp Business
-    targetUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
+    // WhatsApp Web browser tab directly
+    const targetUrl = `https://web.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
+    try {
+      const a = document.createElement('a');
+      a.href = targetUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) document.body.removeChild(a);
+      }, 150);
+    } catch {
+      window.open(targetUrl, '_blank');
+    }
+    return;
   }
 
-  // Use a temporary anchor to guarantee clean external opening across mobile, desktop, and iframe sandboxes
+  if (method === 'wame') {
+    // Universal wa.me link
+    const targetUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
+    try {
+      const a = document.createElement('a');
+      a.href = targetUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) document.body.removeChild(a);
+      }, 150);
+    } catch {
+      window.open(targetUrl, '_blank');
+    }
+    return;
+  }
+
+  // direct_app: WhatsApp / WhatsApp Business direct application protocol (triggers app directly on Android/iOS/PC)
+  const nativeAppUrl = `whatsapp://send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
+  const webFallbackUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
+
   try {
     const a = document.createElement('a');
-    a.href = targetUrl;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
+    a.href = nativeAppUrl;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
       if (document.body.contains(a)) {
         document.body.removeChild(a);
       }
-    }, 150);
-  } catch (err) {
-    window.open(targetUrl, '_blank');
+    }, 200);
+  } catch {
+    window.location.href = nativeAppUrl;
   }
 };
 

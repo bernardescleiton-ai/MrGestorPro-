@@ -1,22 +1,15 @@
 import { Client, Charge, CompanySettings } from '../types';
-import { getDefaultMessage, openWhatsAppLink, dateBR, formatDateTimeBR } from './formatters';
-import { dataUrlToFile, copyImageToClipboard, downloadImage } from './imageHelper';
+import { getDefaultMessage, openWhatsAppLink } from './formatters';
 
 export interface AutomatedSendResult {
   success: boolean;
-  method: 'native_share' | 'whatsapp_link';
-  copiedToClipboard?: boolean;
-  aborted?: boolean;
+  method: 'whatsapp_link';
   textSent?: string;
 }
 
 /**
- * Executes 1-click automated WhatsApp sending for a client.
- * Seamlessly handles:
- * - Direct native file sharing (attaches the image file and pre-fills the message text in WhatsApp)
- * - Guaranteed WhatsApp direct chat opening with formatted text + rich image preview link
- * - Background image copying to clipboard & device gallery
- * - 100% immune to empty messages or lost templates
+ * Executes 1-click WhatsApp message sending for a client.
+ * Directly formats the text template and triggers WhatsApp (or WhatsApp Business / Web).
  */
 export async function sendAutomatedWhatsApp({
   client,
@@ -29,72 +22,13 @@ export async function sendAutomatedWhatsApp({
   settings: CompanySettings;
   onConfirmSent?: (client: Client, charge: Charge | null | undefined, messageText: string) => void;
 }): Promise<AutomatedSendResult> {
-  const hasImage = Boolean(settings.messageTemplateImage);
-  const sendMode = settings.messageSendMode || (hasImage ? 'image_and_text' : 'text_only');
-  const fullText = getDefaultMessage(client, charge, settings);
+  const textToSend = getDefaultMessage(client, charge, settings);
 
-  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
-  const publicNoticeUrl = `${origin}/aviso`;
-
-  // Construct guaranteed text that is NEVER empty and includes the image preview link
-  let textToSend = fullText;
-
-  if (hasImage && sendMode === 'image_only') {
-    const dueStr = charge
-      ? (charge.dueTime ? `${dateBR(charge.dueDate)} às ${charge.dueTime}` : dateBR(charge.dueDate))
-      : (client.dueDate ? formatDateTimeBR(client.dueDate) : '');
-    const amountStr = charge?.amount ? `R$ ${charge.amount.toFixed(2).replace('.', ',')}` : '';
-
-    let msg = `Olá, *${client.name}*! Tudo bem?`;
-    msg += `\n\n🖼️ Segue o seu *Aviso de Vencimento*:`;
-    if (dueStr) msg += `\n📅 Vencimento: *${dueStr}*`;
-    if (amountStr) msg += `\n💰 Valor: *${amountStr}*`;
-    msg += `\n\n👉 *Toque no link para ver o cartaz com a foto:*`;
-    msg += `\n${publicNoticeUrl}`;
-    if (settings.pixKey) {
-      msg += `\n\n🔑 Chave PIX: *${settings.pixKey}*`;
-    }
-    if (settings.signature) {
-      msg += `\n\n${settings.signature}`;
-    }
-    textToSend = msg;
-  } else if (hasImage && sendMode === 'image_and_text') {
-    // Append the direct notice link if not already inside the template
-    if (!textToSend.includes('/aviso') && !textToSend.includes('/api/template-image')) {
-      textToSend += `\n\n🖼️ *Visualizar Cartaz do Aviso:*\n${publicNoticeUrl}`;
-    }
-  }
-
-  // 1. Text only (no image template or mode is text_only)
-  if (!hasImage || sendMode === 'text_only') {
-    openWhatsAppLink(client.phone, textToSend, settings);
-    if (onConfirmSent) {
-      onConfirmSent(client, charge, textToSend || 'Lembrete de vencimento enviado');
-    }
-    return { success: true, method: 'whatsapp_link', textSent: textToSend };
-  }
-
-  // 2. Image sending:
-  // Copy image to clipboard in the background for WhatsApp Web/Desktop (Ctrl+V)
-  const imageSrc = settings.messageTemplateImage!;
-  let copied = false;
-  try {
-    copied = await copyImageToClipboard(imageSrc);
-  } catch {
-    copied = false;
-  }
-
-  // Immediately open WhatsApp with phone & message populated
   openWhatsAppLink(client.phone, textToSend, settings);
 
   if (onConfirmSent) {
-    onConfirmSent(client, charge, textToSend || 'Envio de aviso com foto');
+    onConfirmSent(client, charge, textToSend || 'Lembrete de vencimento enviado');
   }
 
-  return { 
-    success: true, 
-    method: 'whatsapp_link', 
-    copiedToClipboard: copied, 
-    textSent: textToSend 
-  };
+  return { success: true, method: 'whatsapp_link', textSent: textToSend };
 }

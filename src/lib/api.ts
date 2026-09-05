@@ -189,15 +189,20 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
   const localSettings: Partial<CompanySettings> = local?.settings || {};
   const cloudSettings: Partial<CompanySettings> = cloud?.settings || {};
 
-  // Safely merge settings, preserving local custom settings and images if cloud didn't provide them
+  const localUpdated = typeof local?.updatedAt === 'number' ? local.updatedAt : 0;
+  const cloudUpdated = typeof cloud?.updatedAt === 'number' ? cloud.updatedAt : 0;
+  const isLocalNewer = localUpdated >= cloudUpdated;
+
+  const baseSettings = isLocalNewer
+    ? { ...initialAppData.settings, ...cloudSettings, ...localSettings }
+    : { ...initialAppData.settings, ...localSettings, ...cloudSettings };
+
+  // Prioritize active choice from newest update
   const mergedSettings: CompanySettings = {
-    ...initialAppData.settings,
-    ...localSettings,
-    ...cloudSettings,
-    messageTemplateImage: cloudSettings.messageTemplateImage || localSettings.messageTemplateImage || '',
-    messageTemplateImageName: cloudSettings.messageTemplateImageName || localSettings.messageTemplateImageName || '',
-    whatsappMethod: cloudSettings.whatsappMethod || localSettings.whatsappMethod || 'direct_app',
-    messageSendMode: cloudSettings.messageSendMode || localSettings.messageSendMode || 'image_and_text',
+    ...baseSettings,
+    whatsappMethod: isLocalNewer
+      ? (localSettings.whatsappMethod || cloudSettings.whatsappMethod || 'direct_app')
+      : (cloudSettings.whatsappMethod || localSettings.whatsappMethod || 'direct_app'),
   };
 
   return {
@@ -205,10 +210,7 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
     charges: Array.isArray(cloud.charges) ? cloud.charges : (local?.charges || []),
     settings: mergedSettings,
     sentLogs: Array.isArray(cloud.sentLogs) ? cloud.sentLogs : (local?.sentLogs || []),
-    updatedAt: Math.max(
-      typeof cloud.updatedAt === 'number' ? cloud.updatedAt : 0,
-      typeof local?.updatedAt === 'number' ? local.updatedAt : 0
-    ),
+    updatedAt: Math.max(cloudUpdated, localUpdated),
   };
 }
 

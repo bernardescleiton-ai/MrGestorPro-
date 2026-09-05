@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trash2, Bell, X, MessageCircle, RefreshCw, Camera, Sparkles, Copy, Download } from 'lucide-react';
+import { Trash2, Bell, X, MessageCircle, RefreshCw } from 'lucide-react';
 import { AppData, SectionType, Client, Charge, CompanySettings, SentMessageLog, SystemRestorePoint } from './types';
 import { initialAppData } from './data/initialData';
 import { Sidebar } from './components/Sidebar';
@@ -15,10 +15,8 @@ import { ClientModal, isDuplicateClientName } from './components/ClientModal';
 import { ChargeModal } from './components/ChargeModal';
 import { ClientHistoryModal } from './components/ClientHistoryModal';
 import { RenewalModal } from './components/RenewalModal';
-import { WhatsAppSendModal } from './components/WhatsAppSendModal';
 import { RenewalSuccessToast, RenewalToastData } from './components/RenewalSuccessToast';
 import { sendAutomatedWhatsApp } from './utils/automatedSender';
-import { copyImageToClipboard, downloadImage } from './utils/imageHelper';
 import { openWhatsApp, openDirectWhatsApp, openWhatsAppLink, normalizePhone, getDefaultMessage, encodeForWhatsApp, formatDateTimeBR, calculateRenewalDueDate } from './utils/formatters';
 import { checkAndTriggerDeviceNotifications } from './utils/notifications';
 import { 
@@ -131,21 +129,6 @@ export default function App() {
     message: '',
     onConfirm: () => {},
   });
-
-  const [whatsAppSendModal, setWhatsAppSendModal] = useState<{
-    isOpen: boolean;
-    client: Client | null;
-    charge?: Charge | null;
-  }>({
-    isOpen: false,
-    client: null,
-    charge: null,
-  });
-
-  const [whatsAppPhotoToast, setWhatsAppPhotoToast] = useState<{
-    client: Client;
-    hasCopied: boolean;
-  } | null>(null);
 
   const [syncTrigger, setSyncTrigger] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -263,10 +246,7 @@ export default function App() {
         data: {
           clients: currentAppData ? JSON.parse(JSON.stringify(currentAppData.clients)) : [],
           charges: currentAppData ? JSON.parse(JSON.stringify(currentAppData.charges)) : [],
-          settings: currentAppData ? {
-            ...JSON.parse(JSON.stringify(currentAppData.settings)),
-            messageTemplateImage: undefined, // Protect localStorage quota from heavy image duplicates
-          } : {},
+          settings: currentAppData ? JSON.parse(JSON.stringify(currentAppData.settings)) : initialAppData.settings,
         },
       };
 
@@ -922,35 +902,12 @@ export default function App() {
   };
 
   const handleSendWhatsApp = async (client: Client, charge?: Charge) => {
-    const hasImage = Boolean(data.settings.messageTemplateImage);
-    const sendMode = data.settings.messageSendMode || (hasImage ? 'image_and_text' : 'text_only');
-
-    // Se o usuário desativou explicitamente o envio automático direto nas configurações, abre o modal
-    if (data.settings.autoSendDirect === false && hasImage && sendMode !== 'text_only') {
-      setWhatsAppSendModal({
-        isOpen: true,
-        client,
-        charge: charge || null,
-      });
-      return;
-    }
-
-    // Envio 100% automatizado direto na hora (foto + texto sem precisar baixar nem anexar manualmente)
-    const result = await sendAutomatedWhatsApp({
+    await sendAutomatedWhatsApp({
       client,
       charge,
       settings: data.settings,
       onConfirmSent: recordSentMessage,
     });
-
-    if (hasImage && sendMode !== 'text_only' && !result.aborted) {
-      if (result.method === 'whatsapp_link') {
-        setWhatsAppPhotoToast({
-          client,
-          hasCopied: Boolean(result.copiedToClipboard),
-        });
-      }
-    }
   };
 
   const handleDeleteSentLog = (logId: string) => {
@@ -1206,18 +1163,6 @@ export default function App() {
         onClose={() => setRenewalToast(null)}
       />
 
-      {/* WhatsApp Image & Message Send Modal */}
-      <WhatsAppSendModal
-        isOpen={whatsAppSendModal.isOpen}
-        client={whatsAppSendModal.client}
-        charge={whatsAppSendModal.charge}
-        settings={data.settings}
-        onClose={() => setWhatsAppSendModal({ isOpen: false, client: null, charge: null })}
-        onConfirmSent={(client, charge, msg) => {
-          recordSentMessage(client, charge, msg);
-        }}
-      />
-
       {/* Real-time In-App Live Alert Toast */}
       {liveToast && (
         <div className="fixed inset-x-3 top-3 sm:top-5 sm:right-5 sm:left-auto sm:max-w-md sm:w-full z-50 animate-in slide-in-from-top-4 duration-300">
@@ -1299,84 +1244,6 @@ export default function App() {
               >
                 Fechar
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Floating Notice Toast for WhatsApp Photo Sending */}
-      {whatsAppPhotoToast && (
-        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 max-w-md w-[calc(100vw-2rem)] bg-slate-900 text-white rounded-2xl shadow-2xl border border-emerald-500/40 p-4 animate-in slide-in-from-bottom-5 duration-300">
-          <div className="flex items-start gap-3">
-            <div className="p-2.5 bg-emerald-500 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
-              <Camera className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <h4 className="font-bold text-sm text-emerald-400 flex items-center gap-1.5">
-                  <span>Aviso aberto no WhatsApp!</span>
-                </h4>
-                <button
-                  type="button"
-                  onClick={() => setWhatsAppPhotoToast(null)}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
-                  title="Fechar aviso"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <p className="text-xs text-slate-200 mt-1 leading-relaxed">
-                A conversa de <strong>{whatsAppPhotoToast.client.name}</strong> foi aberta com o texto preenchido.
-              </p>
-
-              <div className="mt-2.5 p-2.5 bg-emerald-950/70 border border-emerald-500/30 rounded-xl space-y-1">
-                <p className="text-xs text-emerald-200 font-semibold flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  Foto copiada para a área de transferência!
-                </p>
-                <p className="text-[11px] text-slate-300 leading-snug">
-                  No WhatsApp Web/PC, basta pressionar <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded">Ctrl + V</strong> para colar a foto no chat. O link com a imagem também foi adicionado à mensagem.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-800">
-                {data.settings.messageTemplateImage && (
-                  <button
-                    type="button"
-                    onClick={async (e) => {
-                      const ok = await copyImageToClipboard(data.settings.messageTemplateImage!);
-                      const btn = e.currentTarget;
-                      const originalText = btn.innerHTML;
-                      btn.innerText = ok ? '✓ Copiada!' : 'Erro ao copiar';
-                      setTimeout(() => { btn.innerHTML = originalText; }, 2000);
-                    }}
-                    className="flex-1 py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Copy className="w-3.5 h-3.5" /> Copiar Foto
-                  </button>
-                )}
-                {data.settings.messageTemplateImage && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      downloadImage(
-                        data.settings.messageTemplateImage!,
-                        data.settings.messageTemplateImageName || 'aviso.jpg'
-                      );
-                    }}
-                    className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Baixar
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setWhatsAppPhotoToast(null)}
-                  className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
-                >
-                  OK
-                </button>
-              </div>
             </div>
           </div>
         </div>
