@@ -15,6 +15,7 @@ import { ClientModal, isDuplicateClientName } from './components/ClientModal';
 import { ChargeModal } from './components/ChargeModal';
 import { ClientHistoryModal } from './components/ClientHistoryModal';
 import { RenewalModal } from './components/RenewalModal';
+import { WhatsAppSendModal } from './components/WhatsAppSendModal';
 import { RenewalSuccessToast, RenewalToastData } from './components/RenewalSuccessToast';
 import { openWhatsApp, openDirectWhatsApp, openWhatsAppLink, normalizePhone, getDefaultMessage, encodeForWhatsApp, formatDateTimeBR, calculateRenewalDueDate } from './utils/formatters';
 import { checkAndTriggerDeviceNotifications } from './utils/notifications';
@@ -127,6 +128,16 @@ export default function App() {
     title: '',
     message: '',
     onConfirm: () => {},
+  });
+
+  const [whatsAppSendModal, setWhatsAppSendModal] = useState<{
+    isOpen: boolean;
+    client: Client | null;
+    charge?: Charge | null;
+  }>({
+    isOpen: false,
+    client: null,
+    charge: null,
   });
 
   const [syncTrigger, setSyncTrigger] = useState(0);
@@ -870,13 +881,7 @@ export default function App() {
     }));
   };
 
-  const handleSendWhatsApp = (client: Client, charge?: Charge) => {
-    if (charge) {
-      openWhatsApp(client, charge, data.settings);
-    } else {
-      openDirectWhatsApp(client, data.settings);
-    }
-
+  const recordSentMessage = (client: Client, charge: Charge | null | undefined, messageText: string) => {
     const nowIso = new Date().toISOString();
     const newLog: SentMessageLog = {
       id: generateUUID(),
@@ -886,7 +891,7 @@ export default function App() {
       chargeId: charge?.id,
       dueDate: charge?.dueDate || client.dueDate,
       sentAt: nowIso,
-      messageText: charge ? getDefaultMessage(client, charge, data.settings) : 'Lembrete de vencimento enviado',
+      messageText: messageText || (charge ? getDefaultMessage(client, charge, data.settings) : 'Lembrete de vencimento enviado'),
       note: charge?.note,
       status: 'enviado',
     };
@@ -904,6 +909,34 @@ export default function App() {
         sentLogs: [newLog, ...(prev.sentLogs || [])],
       };
     });
+  };
+
+  const handleSendWhatsApp = (client: Client, charge?: Charge) => {
+    const hasImage = Boolean(data.settings.messageTemplateImage);
+    const sendMode = data.settings.messageSendMode || (hasImage ? 'image_and_text' : 'text_only');
+
+    // Se houver template de imagem configurado e modo não for apenas texto, abre modal com as opções de foto e texto
+    if (hasImage && sendMode !== 'text_only') {
+      setWhatsAppSendModal({
+        isOpen: true,
+        client,
+        charge: charge || null,
+      });
+      return;
+    }
+
+    // Envio direto em texto (1 clique rápido)
+    if (charge) {
+      openWhatsApp(client, charge, data.settings);
+    } else {
+      openDirectWhatsApp(client, data.settings);
+    }
+
+    recordSentMessage(
+      client,
+      charge,
+      charge ? getDefaultMessage(client, charge, data.settings) : 'Lembrete de vencimento enviado'
+    );
   };
 
   const handleDeleteSentLog = (logId: string) => {
@@ -1157,6 +1190,18 @@ export default function App() {
         toast={renewalToast}
         settings={data.settings}
         onClose={() => setRenewalToast(null)}
+      />
+
+      {/* WhatsApp Image & Message Send Modal */}
+      <WhatsAppSendModal
+        isOpen={whatsAppSendModal.isOpen}
+        client={whatsAppSendModal.client}
+        charge={whatsAppSendModal.charge}
+        settings={data.settings}
+        onClose={() => setWhatsAppSendModal({ isOpen: false, client: null, charge: null })}
+        onConfirmSent={(client, charge, msg) => {
+          recordSentMessage(client, charge, msg);
+        }}
       />
 
       {/* Real-time In-App Live Alert Toast */}

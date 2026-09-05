@@ -18,10 +18,18 @@ import {
   Zap,
   Globe,
   ExternalLink,
-  Smartphone
+  Smartphone,
+  Image as ImageIcon,
+  Layers,
+  FileText,
+  Upload,
+  Trash2,
+  ZoomIn,
+  Info
 } from 'lucide-react';
-import { CompanySettings, NotificationRules } from '../types';
+import { CompanySettings, NotificationRules, MessageSendMode } from '../types';
 import { defaultNotificationRules } from '../utils/notifications';
+import { processTemplateImage, downloadImage } from '../utils/imageHelper';
 
 interface NoticesConfigViewProps {
   settings: CompanySettings;
@@ -32,6 +40,10 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
   const [formData, setFormData] = useState<CompanySettings>(settings);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [activeTemplateTab, setActiveTemplateTab] = useState<'standard' | 'renewal' | 'reminder'>('standard');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [zoomPreview, setZoomPreview] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   useEffect(() => {
     const activeEl = document.activeElement;
@@ -40,6 +52,30 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
       setFormData(settings);
     }
   }, [settings]);
+
+  const handleImageFile = async (file: File) => {
+    setImageError(null);
+    setUploadingImage(true);
+    try {
+      const processed = await processTemplateImage(file);
+      const updated: CompanySettings = {
+        ...formData,
+        messageTemplateImage: processed.dataUrl,
+        messageTemplateImageName: processed.name,
+        // Auto select image_and_text if mode was previously text_only or unset
+        messageSendMode:
+          formData.messageSendMode === 'text_only' || !formData.messageSendMode
+            ? 'image_and_text'
+            : formData.messageSendMode,
+      };
+      setFormData(updated);
+      onSaveSettings(updated);
+    } catch (err: any) {
+      setImageError(err?.message || 'Erro ao processar imagem (.jpg ou .png).');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const currentRules: NotificationRules = formData.notificationRules || defaultNotificationRules;
 
@@ -442,44 +478,334 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
 
           {/* Active Template Form Section */}
           {activeTemplateTab === 'standard' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Texto Padrão de Cobrança / Aviso de Vencimento
-                </label>
-                {formData.messageTemplate && (
+            <div className="space-y-6">
+              {/* 1. Escolha do Modo de Envio (Foto, Texto ou Foto e Texto Juntos) */}
+              <div className="p-4 bg-slate-50/90 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                      Modo de Envio do Aviso de Vencimento
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Escolha como deseja enviar este aviso: foto com texto, apenas foto ou somente o texto.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-mono px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-slate-200 text-slate-700 self-start sm:self-auto">
+                    {formData.messageSendMode === 'image_only'
+                      ? 'Apenas Foto Ativo'
+                      : formData.messageSendMode === 'text_only'
+                      ? 'Apenas Texto Ativo'
+                      : 'Foto e Texto Juntos Ativo'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  {/* Option 1: Foto e Texto Juntos */}
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, messageTemplate: '' })}
-                    className="text-[11px] text-rose-600 hover:text-rose-800 font-bold flex items-center gap-1"
+                    onClick={() => {
+                      const updated = { ...formData, messageSendMode: 'image_and_text' as MessageSendMode };
+                      setFormData(updated);
+                      onSaveSettings(updated);
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative ${
+                      (formData.messageSendMode ?? (formData.messageTemplateImage ? 'image_and_text' : 'text_only')) === 'image_and_text'
+                        ? 'bg-emerald-50/90 border-emerald-500 text-emerald-950 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
                   >
-                    <XCircle className="w-3.5 h-3.5" /> Deixar em Branco (Mensagem Livre)
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="p-2 rounded-xl bg-emerald-100/80 text-emerald-700">
+                        <Layers className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-200/60 text-emerald-800">
+                        Recomendado
+                      </span>
+                    </div>
+                    <span className="text-xs font-bold block text-slate-900">Foto e Texto Juntos</span>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                      Envia o flyer/arte com o texto contendo dados do cliente, vencimento e chave PIX.
+                    </p>
                   </button>
+
+                  {/* Option 2: Apenas Foto */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = { ...formData, messageSendMode: 'image_only' as MessageSendMode };
+                      setFormData(updated);
+                      onSaveSettings(updated);
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative ${
+                      formData.messageSendMode === 'image_only'
+                        ? 'bg-blue-50/90 border-blue-500 text-blue-950 ring-2 ring-blue-500/20 shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="p-2 rounded-xl bg-blue-100/80 text-blue-700">
+                        <ImageIcon className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-200/60 text-blue-800">
+                        Flyer / Cartaz
+                      </span>
+                    </div>
+                    <span className="text-xs font-bold block text-slate-900">Apenas Foto</span>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                      Envia somente a foto/flyer de aviso sem texto acompanhando.
+                    </p>
+                  </button>
+
+                  {/* Option 3: Apenas Texto */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = { ...formData, messageSendMode: 'text_only' as MessageSendMode };
+                      setFormData(updated);
+                      onSaveSettings(updated);
+                    }}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative ${
+                      formData.messageSendMode === 'text_only'
+                        ? 'bg-slate-900 border-slate-900 text-white shadow-xs'
+                        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className={`p-2 rounded-xl ${formData.messageSendMode === 'text_only' ? 'bg-slate-800 text-emerald-400' : 'bg-slate-100 text-slate-700'}`}>
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${formData.messageSendMode === 'text_only' ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                        Tradicional
+                      </span>
+                    </div>
+                    <span className={`text-xs font-bold block ${formData.messageSendMode === 'text_only' ? 'text-white' : 'text-slate-900'}`}>
+                      Apenas Texto
+                    </span>
+                    <p className={`text-[11px] mt-1 leading-snug ${formData.messageSendMode === 'text_only' ? 'text-slate-300' : 'text-slate-500'}`}>
+                      Envia somente a mensagem de texto tradicional, sem anexo de foto.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Campo de Imagem Template (.jpg, .jpeg, .png) */}
+              <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                  <div>
+                    <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <ImageIcon className="w-4 h-4 text-emerald-600" />
+                      Imagem / Flyer do Aviso de Vencimento (.jpg e .png)
+                    </label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Adicione uma foto, flyer ou arte de cobrança para enviar aos clientes.
+                    </p>
+                  </div>
+                  {formData.messageTemplateImage && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = {
+                          ...formData,
+                          messageTemplateImage: '',
+                          messageTemplateImageName: '',
+                          messageSendMode: formData.messageSendMode === 'image_only' ? 'text_only' : formData.messageSendMode,
+                        };
+                        setFormData(updated);
+                        onSaveSettings(updated);
+                      }}
+                      className="text-xs text-rose-600 hover:text-rose-700 font-semibold flex items-center gap-1 cursor-pointer self-start sm:self-auto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Remover Foto
+                    </button>
+                  )}
+                </div>
+
+                {imageError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 font-medium flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{imageError}</span>
+                  </div>
+                )}
+
+                {/* Se não houver imagem carregada: Dropzone */}
+                {!formData.messageTemplateImage ? (
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragOver(true);
+                    }}
+                    onDragLeave={() => setIsDragOver(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragOver(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        handleImageFile(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className={`border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center transition-all ${
+                      isDragOver
+                        ? 'border-emerald-500 bg-emerald-50/60 scale-[1.01]'
+                        : 'border-slate-300 hover:border-slate-400 bg-slate-50/60'
+                    }`}
+                  >
+                    <div className="max-w-md mx-auto space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
+                        <Upload className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs sm:text-sm font-bold text-slate-800">
+                          Arraste e solte sua imagem aqui ou clique para selecionar
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                          Formatos aceitos: <strong>.JPG</strong>, <strong>.JPEG</strong> e <strong>.PNG</strong>
+                        </p>
+                      </div>
+
+                      <label className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-xs active:scale-95">
+                        <Upload className="w-4 h-4" />
+                        <span>{uploadingImage ? 'Processando Imagem...' : 'Escolher Imagem (.jpg / .png)'}</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/jpg,.jpg,.jpeg,.png"
+                          className="hidden"
+                          disabled={uploadingImage}
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleImageFile(e.target.files[0]);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  /* Se já houver imagem carregada: Card de Preview */
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <div className="relative group rounded-xl overflow-hidden border border-slate-200 bg-white w-20 h-20 sm:w-24 sm:h-24 shrink-0 flex items-center justify-center shadow-xs">
+                        <img
+                          src={formData.messageTemplateImage}
+                          alt="Template de Aviso"
+                          className="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition-transform"
+                          onClick={() => setZoomPreview(true)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setZoomPreview(true)}
+                          className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white cursor-pointer"
+                          title="Ampliar Imagem"
+                        >
+                          <ZoomIn className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-800 truncate block max-w-[200px] sm:max-w-xs">
+                            {formData.messageTemplateImageName || 'flyer-vencimento.jpg'}
+                          </span>
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full shrink-0">
+                            Pronta para Envio
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          Formatos .JPG e .PNG suportados • Otimizada automaticamente
+                        </p>
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setZoomPreview(true)}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer"
+                          >
+                            <ZoomIn className="w-3.5 h-3.5" /> Ver Ampliada
+                          </button>
+                          <span className="text-slate-300">•</span>
+                          <button
+                            type="button"
+                            onClick={() => downloadImage(formData.messageTemplateImage!, formData.messageTemplateImageName || 'aviso.jpg')}
+                            className="text-xs text-slate-600 hover:text-slate-800 font-semibold flex items-center gap-1 cursor-pointer"
+                          >
+                            Baixar Imagem
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                      <label className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs">
+                        <Upload className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Trocar Imagem</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/jpg,.jpg,.jpeg,.png"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleImageFile(e.target.files[0]);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 )}
               </div>
 
-              {/* Tag Insertion Buttons */}
-              <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1">Inserir Tags:</span>
-                {['{nome}', '{vencimento}', '{valor}', '{empresa}', '{pix}'].map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => handleInsertTag(t, 'messageTemplate')}
-                    className="px-2 py-1 bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 rounded-lg text-[11px] font-mono font-bold border border-slate-200 shadow-2xs transition-colors"
-                  >
-                    +{t}
-                  </button>
-                ))}
-              </div>
+              {/* 3. Área de Criação de Texto Padrão */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Texto Padrão de Cobrança / Aviso de Vencimento
+                    </label>
+                    {formData.messageSendMode === 'image_only' && (
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-full">
+                        Texto Inativo (Modo Apenas Foto ativo)
+                      </span>
+                    )}
+                  </div>
+                  {formData.messageTemplate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = { ...formData, messageTemplate: '' };
+                        setFormData(updated);
+                        onSaveSettings(updated);
+                      }}
+                      className="text-[11px] text-rose-600 hover:text-rose-800 font-bold flex items-center gap-1"
+                    >
+                      <XCircle className="w-3.5 h-3.5" /> Deixar em Branco (Mensagem Livre)
+                    </button>
+                  )}
+                </div>
 
-              <textarea
-                rows={4}
-                value={formData.messageTemplate ?? ''}
-                onChange={(e) => setFormData({ ...formData, messageTemplate: e.target.value })}
-                placeholder="Ex: Olá {nome}, seu plano vence em {vencimento}. Valor: {valor}. Chave PIX: {pix}. Atenciosamente, {empresa}."
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none leading-relaxed font-mono"
-              />
+                {/* Tag Insertion Buttons */}
+                <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1">Inserir Tags:</span>
+                  {['{nome}', '{vencimento}', '{valor}', '{empresa}', '{pix}'].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => handleInsertTag(t, 'messageTemplate')}
+                      className="px-2 py-1 bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 rounded-lg text-[11px] font-mono font-bold border border-slate-200 shadow-2xs transition-colors"
+                    >
+                      +{t}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  rows={4}
+                  value={formData.messageTemplate ?? ''}
+                  onChange={(e) => {
+                    const updated = { ...formData, messageTemplate: e.target.value };
+                    setFormData(updated);
+                  }}
+                  placeholder="Ex: Olá {nome}, seu plano vence em {vencimento}. Valor: {valor}. Chave PIX: {pix}. Atenciosamente, {empresa}."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:bg-white outline-none leading-relaxed font-mono"
+                />
+              </div>
             </div>
           )}
 
@@ -632,13 +958,43 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
                 <Eye className="w-3.5 h-3.5 text-emerald-600" />
                 Pré-visualização do WhatsApp
               </span>
-              <span className="text-[11px] text-slate-500 font-mono">Exemplo com dados simulados</span>
+              <span className="text-[11px] text-slate-500 font-mono">
+                {activeTemplateTab === 'standard' && formData.messageSendMode === 'image_only'
+                  ? 'Exibição: Apenas Foto'
+                  : activeTemplateTab === 'standard' && (formData.messageSendMode === 'image_and_text' || (!formData.messageSendMode && formData.messageTemplateImage))
+                  ? 'Exibição: Foto + Texto Juntos'
+                  : 'Exibição: Mensagem de Texto'}
+              </span>
             </div>
 
             <div className="bg-[#EFEAE2] p-4 rounded-xl shadow-inner max-w-lg">
-              <div className="bg-white text-slate-800 text-xs p-3.5 rounded-2xl rounded-tl-xs shadow-xs space-y-1.5 leading-relaxed font-sans relative">
-                <p className="whitespace-pre-wrap">{getPreviewText()}</p>
-                <div className="text-[10px] text-slate-400 text-right font-mono flex items-center justify-end gap-1">
+              <div className="bg-white text-slate-800 text-xs p-3.5 rounded-2xl rounded-tl-xs shadow-xs space-y-2 leading-relaxed font-sans relative">
+                {/* Standard template with image */}
+                {activeTemplateTab === 'standard' && formData.messageTemplateImage && formData.messageSendMode !== 'text_only' && (
+                  <div className="rounded-xl overflow-hidden border border-slate-200/60 bg-slate-100 relative group">
+                    <img
+                      src={formData.messageTemplateImage}
+                      alt="Banner Preview"
+                      className="w-full max-h-56 object-contain rounded-xl cursor-pointer"
+                      onClick={() => setZoomPreview(true)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setZoomPreview(true)}
+                      className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity text-[10px] flex items-center gap-1 cursor-pointer"
+                    >
+                      <ZoomIn className="w-3 h-3" />
+                      <span>Ampliar</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Text portion (if not image_only) */}
+                {!(activeTemplateTab === 'standard' && formData.messageSendMode === 'image_only') && (
+                  <p className="whitespace-pre-wrap">{getPreviewText()}</p>
+                )}
+
+                <div className="text-[10px] text-slate-400 text-right font-mono flex items-center justify-end gap-1 pt-1">
                   12:45 <Check className="w-3.5 h-3.5 text-blue-500 inline" />
                 </div>
               </div>
@@ -649,7 +1005,7 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
             <button
               type="submit"
-              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2"
+              className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
             >
               <Save className="w-4 h-4" />
               Salvar Modelos de Avisos
@@ -657,6 +1013,29 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
           </div>
         </form>
       </div>
+
+      {/* Lightbox Zoom Modal */}
+      {zoomPreview && formData.messageTemplateImage && (
+        <div
+          className="fixed inset-0 z-60 bg-black/90 flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setZoomPreview(false)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
+            <img
+              src={formData.messageTemplateImage}
+              alt="Ampliada"
+              className="max-w-full max-h-[82vh] object-contain rounded-xl shadow-2xl"
+            />
+            <button
+              type="button"
+              onClick={() => setZoomPreview(false)}
+              className="mt-3 px-4 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-full text-xs font-bold backdrop-blur-xs cursor-pointer"
+            >
+              Fechar Visualização
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
