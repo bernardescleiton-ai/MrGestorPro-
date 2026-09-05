@@ -767,36 +767,79 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
                 )}
               </div>
 
-              {/* Banner de Envio 100% Automático na Hora */}
+              {/* Banner e Configuração de Envio com Foto */}
               {formData.messageTemplateImage && formData.messageSendMode !== 'text_only' && (
-                <div className="p-4 bg-emerald-50/90 border border-emerald-300 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
-                      <Sparkles className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
-                          Envio 100% Automático na Hora
-                        </h4>
-                        <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 text-[10px] font-extrabold rounded-full">
-                          Pronto
-                        </span>
+                <div className="p-4 bg-emerald-50/90 border border-emerald-300 rounded-2xl space-y-4 shadow-2xs">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
+                        <Sparkles className="w-5 h-5" />
                       </div>
-                      <p className="text-[11px] text-emerald-800 mt-0.5 leading-relaxed">
-                        Ao escolher qualquer cliente e tocar no WhatsApp, o aplicativo já anexa a foto salva e a mensagem automaticamente. Sem precisar baixar nem buscar em anexos manualmente!
-                      </p>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
+                            Envio de Aviso com Foto Configurado
+                          </h4>
+                          <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 text-[10px] font-extrabold rounded-full">
+                            Ativo
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-emerald-800 mt-1 leading-relaxed">
+                          • <strong>No Computador / WhatsApp Web:</strong> O app copia a foto para a área de transferência e abre a conversa com o texto. Basta teclar <strong>Ctrl + V</strong> (Colar) para enviar a imagem na hora!<br />
+                          • <strong>No Celular:</strong> O app abre o compartilhamento do aparelho já com a foto anexada e a mensagem pronta.<br />
+                          • <strong>Cartaz Oficial Online:</strong> A mensagem enviada também inclui o link direto para o cliente abrir o cartaz oficial com os dados de pagamento.
+                        </p>
+                      </div>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={handleTestAutomatedSend}
+                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 cursor-pointer shrink-0 self-stretch sm:self-auto justify-center"
+                    >
+                      <MessageSquare className="w-4 h-4 fill-white" />
+                      <span>📱 Testar Envio Agora</span>
+                    </button>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleTestAutomatedSend}
-                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center gap-2 cursor-pointer shrink-0 self-stretch sm:self-auto justify-center"
-                  >
-                    <MessageSquare className="w-4 h-4 fill-white" />
-                    <span>📱 Testar Envio Automático</span>
-                  </button>
+                  {/* Alternador de Modo de Envio: Direto vs Janela de Confirmação */}
+                  <div className="pt-2 border-t border-emerald-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-emerald-950">
+                      Ao tocar no WhatsApp na lista de clientes:
+                    </span>
+                    <div className="inline-flex rounded-xl bg-emerald-200/60 p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...formData, autoSendDirect: true };
+                          setFormData(updated);
+                          onSaveSettings(updated);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          formData.autoSendDirect !== false
+                            ? 'bg-emerald-700 text-white shadow-xs'
+                            : 'text-emerald-900 hover:bg-emerald-200'
+                        }`}
+                      >
+                        ⚡ Envio Direto (1 Clique)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...formData, autoSendDirect: false };
+                          setFormData(updated);
+                          onSaveSettings(updated);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          formData.autoSendDirect === false
+                            ? 'bg-emerald-700 text-white shadow-xs'
+                            : 'text-emerald-900 hover:bg-emerald-200'
+                        }`}
+                      >
+                        🖼️ Abrir Janela com Prévia da Foto
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 

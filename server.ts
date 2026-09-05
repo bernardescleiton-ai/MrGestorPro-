@@ -99,10 +99,26 @@ app.get('/api/health', (req, res) => {
 });
 
 // Serve the configured message template image publicly as a JPEG/PNG asset
-app.get(['/api/template-image', '/api/template-image.jpg'], (req, res) => {
+app.get(['/api/template-image', '/api/template-image.jpg'], async (req, res) => {
   try {
-    const data = readLocalStorage();
-    const imageBase64 = data?.settings?.messageTemplateImage;
+    let data = readLocalStorage();
+    let imageBase64 = data?.settings?.messageTemplateImage;
+
+    // If not in local storage yet, check Firestore
+    if ((!imageBase64 || typeof imageBase64 !== 'string') && db) {
+      try {
+        const docRef = doc(db, 'app_state', APP_STATE_DOC_ID);
+        const snapshot = await getDoc(docRef);
+        if (snapshot.exists()) {
+          const cloudData = snapshot.data();
+          imageBase64 = cloudData?.settings?.messageTemplateImage;
+          if (imageBase64) {
+            writeLocalStorage(cloudData);
+          }
+        }
+      } catch {}
+    }
+
     if (!imageBase64 || typeof imageBase64 !== 'string' || !imageBase64.includes(',')) {
       return res.status(404).send('Nenhuma imagem configurada no momento.');
     }
@@ -117,6 +133,73 @@ app.get(['/api/template-image', '/api/template-image.jpg'], (req, res) => {
     return res.send(buffer);
   } catch (err: any) {
     return res.status(500).send('Erro ao carregar imagem.');
+  }
+});
+
+// Dedicated OpenGraph public page for WhatsApp link previews and direct visual notice
+app.get(['/aviso', '/aviso/:id'], (req, res) => {
+  try {
+    const data = readLocalStorage();
+    const settings = data?.settings || {};
+    const companyName = settings.name || 'MrGestor';
+    const pixKey = settings.pixKey || '';
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+    const host = req.headers['x-forwarded-host'] || req.get('host') || 'localhost:3000';
+    const hostUrl = `${proto}://${host}`;
+    const imageUrl = `${hostUrl}/api/template-image.jpg`;
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aviso de Vencimento - ${companyName}</title>
+  <meta property="og:title" content="Aviso de Vencimento - ${companyName}" />
+  <meta property="og:description" content="Confira os dados do seu aviso e chave PIX para pagamento." />
+  <meta property="og:image" content="${imageUrl}" />
+  <meta property="og:image:secure_url" content="${imageUrl}" />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="${imageUrl}" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+  <div class="max-w-md w-full bg-slate-800 border border-slate-700 rounded-3xl p-6 shadow-2xl space-y-5 text-center">
+    <div class="space-y-1">
+      <span class="text-[11px] uppercase tracking-wider text-emerald-400 font-bold bg-emerald-950/60 border border-emerald-800/80 px-3 py-1 rounded-full inline-block">
+        ${companyName}
+      </span>
+      <h1 class="text-xl font-bold text-white mt-2">Aviso de Vencimento</h1>
+      <p class="text-xs text-slate-400">Consulte o informativo visual abaixo:</p>
+    </div>
+
+    <div class="rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 shadow-inner">
+      <img src="${imageUrl}" alt="Aviso" class="w-full h-auto object-contain max-h-[70vh]" onerror="this.parentElement.innerHTML='<div class=\\'p-8 text-xs text-slate-400\\'>Imagem não disponível ou em atualização.</div>'" />
+    </div>
+
+    ${pixKey ? `
+    <div class="p-3.5 bg-slate-900/80 border border-slate-700/80 rounded-2xl text-left space-y-1.5">
+      <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Chave PIX para Pagamento:</p>
+      <div class="flex items-center justify-between gap-2 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800">
+        <code class="text-xs text-emerald-400 font-mono select-all break-all">${pixKey}</code>
+      </div>
+    </div>` : ''}
+
+    <div class="pt-2 flex flex-col gap-2">
+      <a href="${imageUrl}" download="aviso_cobranca.jpg" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
+        Baixar Imagem do Aviso
+      </a>
+      <p class="text-[10px] text-slate-500">${companyName} • Gestão Financeira Segura</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  } catch (err) {
+    return res.status(500).send('Erro ao abrir aviso.');
   }
 });
 

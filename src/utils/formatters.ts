@@ -34,14 +34,8 @@ export const getChargeStatus = (c: Charge): ChargeStatus => {
 
 export const encodeForWhatsApp = (text: string): string => {
   if (!text) return '';
-  return encodeURIComponent(text)
-    .replace(/\*/g, '%2A')
-    .replace(/_/g, '%5F')
-    .replace(/~/g, '%7E')
-    .replace(/'/g, '%27')
-    .replace(/\(/g, '%28')
-    .replace(/\)/g, '%29')
-    .replace(/!/g, '%21');
+  // Standard encodeURIComponent preserves line breaks (%0A) and symbols without mangling markdown bold/italic
+  return encodeURIComponent(text);
 };
 
 export const calculateRenewalDueDate = (currentDueDate: string | undefined, monthsToAdd: number): string => {
@@ -77,13 +71,10 @@ export const calculateRenewalDueDate = (currentDueDate: string | undefined, mont
 };
 
 export const getDefaultMessage = (client: Client, charge: Charge | null | undefined, settings: CompanySettings): string => {
-  const template = settings?.messageTemplate !== undefined && settings?.messageTemplate !== null 
+  const defaultTemplate = 'Olá, {nome}! Tudo bem?\n\nPassando para lembrar que seu vencimento está agendado para o dia *{vencimento}*.{nota}';
+  const template = settings?.messageTemplate && settings.messageTemplate.trim()
     ? settings.messageTemplate 
-    : 'Olá, {nome}! Tudo bem?\n\nPassando para lembrar que seu vencimento está agendado para o dia *{vencimento}*.{nota}';
-
-  if (!template || !template.trim()) {
-    return settings?.signature || '';
-  }
+    : defaultTemplate;
 
   const dueStr = charge ? (charge.dueTime ? `${dateBR(charge.dueDate)} às ${charge.dueTime}` : dateBR(charge.dueDate)) : (client.dueDate ? formatDateTimeBR(client.dueDate) : 'a definir');
   const noteText = charge?.note ? `\nObservação: ${charge.note}` : '';
@@ -96,6 +87,8 @@ export const getDefaultMessage = (client: Client, charge: Charge | null | undefi
     .replace(/{nome}|{cliente}/gi, () => client.name || '')
     .replace(/{vencimento}|{venc}|{data}/gi, () => dueStr || '')
     .replace(/{valor}|{quantia}/gi, () => amountText || '')
+    .replace(/{empresa}/gi, () => settings?.name || '')
+    .replace(/{pix}/gi, () => settings?.pixKey || '')
     .replace(/{nota}|{observacao}/gi, () => noteText || '');
 
   // 2. Unbraced tag fallbacks if user typed *vencimento* or *nome* without braces
@@ -136,40 +129,21 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
   }
 
   // Method 'direct_app' (Default - Universal mobile & desktop handler)
-  const textParam = encodedText ? `&text=${encodedText}` : '';
-  const universalUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${textParam}`;
-  const customSchemeUrl = `whatsapp://send?phone=${fullPhone}${textParam}`;
+  const waUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
+  const apiSendUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
 
   const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   if (isMobile) {
-    // In Android APK WebViews, Chrome, and iOS:
-    // https://api.whatsapp.com is handled directly by Android OS App Links / iOS Universal Links.
-    // It opens WhatsApp without triggering ERR_UNKNOWN_URL_SCHEME or crashing APK WebViews.
+    // In Android & iOS: wa.me / api.whatsapp.com automatically hand off to the native WhatsApp app with pre-filled text
     try {
-      const opened = window.open(universalUrl, '_blank');
-      if (!opened) {
-        window.location.href = universalUrl;
-      }
+      window.location.href = waUrl;
     } catch {
-      window.location.href = universalUrl;
+      window.open(apiSendUrl, '_blank');
     }
   } else {
-    // Desktop: Try direct protocol scheme, fallback to web/universal
-    try {
-      const a = document.createElement('a');
-      a.href = customSchemeUrl;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) {
-          document.body.removeChild(a);
-        }
-      }, 500);
-    } catch {
-      window.open(universalUrl, '_blank');
-    }
+    // Desktop: Opens WhatsApp Desktop or WhatsApp Web with complete text populated
+    window.open(waUrl, '_blank');
   }
 };
 
@@ -179,31 +153,29 @@ export const openWhatsApp = (client: Client, charge: Charge | null | undefined, 
 };
 
 export const openDirectWhatsApp = (client: Client, settings: CompanySettings) => {
-  const template = settings?.messageTemplate !== undefined && settings?.messageTemplate !== null 
+  const defaultTemplate = 'Olá, {nome}! Tudo bem?\n\nPassando para lembrar sobre o seu vencimento cadastrado para: *{vencimento}*.';
+  const template = settings?.messageTemplate && settings.messageTemplate.trim()
     ? settings.messageTemplate 
-    : 'Olá, {nome}! Tudo bem?\n\nPassando para lembrar sobre o seu vencimento cadastrado para: *{vencimento}*.';
+    : defaultTemplate;
 
-  let msg = '';
-  if (template && template.trim()) {
-    const dueDateFormatted = client.dueDate ? formatDateTimeBR(client.dueDate) : 'a definir';
-    msg = template
-      .replace(/{nome}|{cliente}/gi, () => client.name || '')
-      .replace(/{vencimento}|{venc}|{data}/gi, () => dueDateFormatted || '')
-      .replace(/{valor}|{quantia}/gi, () => '')
-      .replace(/{nota}|{observacao}/gi, () => '');
+  const dueDateFormatted = client.dueDate ? formatDateTimeBR(client.dueDate) : 'a definir';
+  let msg = template
+    .replace(/{nome}|{cliente}/gi, () => client.name || '')
+    .replace(/{vencimento}|{venc}|{data}/gi, () => dueDateFormatted || '')
+    .replace(/{empresa}/gi, () => settings?.name || '')
+    .replace(/{pix}/gi, () => settings?.pixKey || '')
+    .replace(/{valor}|{quantia}/gi, () => '')
+    .replace(/{nota}|{observacao}/gi, () => '');
 
-    if (msg.includes('*vencimento*')) {
-      msg = msg.replace(/\*vencimento\*/gi, () => `*${dueDateFormatted}*`);
-    }
-    if (msg.includes('*nome*') || msg.includes('*cliente*')) {
-      msg = msg.replace(/\*nome\*|\*cliente\*/gi, () => `*${client.name}*`);
-    }
+  if (msg.includes('*vencimento*')) {
+    msg = msg.replace(/\*vencimento\*/gi, () => `*${dueDateFormatted}*`);
+  }
+  if (msg.includes('*nome*') || msg.includes('*cliente*')) {
+    msg = msg.replace(/\*nome\*|\*cliente\*/gi, () => `*${client.name}*`);
+  }
 
-    if (settings?.signature) {
-      msg += `\n\n${settings.signature}`;
-    }
-  } else if (settings?.signature) {
-    msg = settings.signature;
+  if (settings?.signature) {
+    msg += `\n\n${settings.signature}`;
   }
 
   openWhatsAppLink(client.phone, msg, settings);

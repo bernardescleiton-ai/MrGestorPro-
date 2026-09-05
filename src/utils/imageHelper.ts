@@ -152,7 +152,7 @@ export function dataUrlToFile(dataUrl: string, filename = 'aviso_cobranca.jpg'):
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9._-]/g, '_') || 'aviso_cobranca.jpg';
 
-  return new File([u8arr.buffer], safeFilename, { type: mime, lastModified: Date.now() });
+  return new File([u8arr], safeFilename, { type: mime, lastModified: Date.now() });
 }
 
 /**
@@ -160,15 +160,15 @@ export function dataUrlToFile(dataUrl: string, filename = 'aviso_cobranca.jpg'):
  */
 export async function copyImageToClipboard(dataUrl: string): Promise<boolean> {
   try {
-    if (!navigator.clipboard || !window.ClipboardItem) {
+    if (typeof navigator === 'undefined' || !navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
       return false;
     }
-    const pngBlob = await dataUrlToPngBlob(dataUrl);
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'image/png': pngBlob,
-      }),
-    ]);
+    const pngBlobPromise = dataUrlToPngBlob(dataUrl);
+    // Passing the Promise to ClipboardItem maintains user gesture in modern Chrome/Safari
+    const item = new ClipboardItem({
+      'image/png': pngBlobPromise,
+    });
+    await navigator.clipboard.write([item]);
     return true;
   } catch (err) {
     console.warn('Clipboard copy error:', err);

@@ -58,9 +58,29 @@ export const WhatsAppSendModal: React.FC<WhatsAppSendModalProps> = ({
   const imageSrc = settings.messageTemplateImage || '';
   const imageName = settings.messageTemplateImageName || 'aviso-vencimento.jpg';
 
-  // Compute personalized text
+  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+  const publicNoticeUrl = `${origin}/aviso`;
+
+  const dueLabel = charge
+    ? charge.dueTime
+      ? `${dateBR(charge.dueDate)} às ${charge.dueTime}`
+      : dateBR(charge.dueDate)
+    : client.dueDate
+    ? formatDateTimeBR(client.dueDate)
+    : 'A definir';
+
+  // Compute personalized text that is never empty and includes the image link
   const fullText = getDefaultMessage(client, charge, settings);
-  const textToSend = selectedMode === 'image_only' ? '' : fullText;
+  let computedText = fullText;
+
+  if (hasImage && selectedMode === 'image_only') {
+    computedText = `Olá, *${client.name}*! Tudo bem?\n\n🖼️ Segue o seu *Aviso de Vencimento*:\n📅 Vencimento: *${dueLabel}*\n\n👉 *Toque no link para ver o aviso completo:*\n${publicNoticeUrl}${settings.pixKey ? `\n\n🔑 Chave PIX: *${settings.pixKey}*` : ''}${settings.signature ? `\n\n${settings.signature}` : ''}`;
+  } else if (hasImage && selectedMode === 'image_and_text') {
+    if (!computedText.includes('/aviso') && !computedText.includes('/api/template-image')) {
+      computedText += `\n\n🖼️ *Visualizar Aviso / Cartaz Oficial:*\n${publicNoticeUrl}`;
+    }
+  }
+  const textToSend = computedText;
 
   const showToastNotice = (msg: string) => {
     setNoticeToast(msg);
@@ -80,8 +100,8 @@ export const WhatsAppSendModal: React.FC<WhatsAppSendModalProps> = ({
   };
 
   const handleCopyText = async () => {
-    if (!fullText) return;
-    const ok = await copyTextToClipboard(fullText);
+    if (!textToSend) return;
+    const ok = await copyTextToClipboard(textToSend);
     if (ok) {
       setCopiedText(true);
       showToastNotice('✅ Texto da mensagem copiado!');
@@ -121,14 +141,6 @@ export const WhatsAppSendModal: React.FC<WhatsAppSendModalProps> = ({
       setIsSending(false);
     }
   };
-
-  const dueLabel = charge
-    ? charge.dueTime
-      ? `${dateBR(charge.dueDate)} às ${charge.dueTime}`
-      : dateBR(charge.dueDate)
-    : client.dueDate
-    ? formatDateTimeBR(client.dueDate)
-    : 'A definir';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto animate-fadeIn">
@@ -290,14 +302,12 @@ export const WhatsAppSendModal: React.FC<WhatsAppSendModalProps> = ({
                 </div>
               )}
 
-              {/* Text if mode requires it */}
-              {(selectedMode === 'image_and_text' || selectedMode === 'text_only') && (
-                <div className="pt-1">
-                  <p className="text-xs leading-relaxed whitespace-pre-wrap font-sans text-slate-800">
-                    {fullText}
-                  </p>
-                </div>
-              )}
+              {/* Text preview */}
+              <div className="pt-1">
+                <p className="text-xs leading-relaxed whitespace-pre-wrap font-sans text-slate-800">
+                  {textToSend}
+                </p>
+              </div>
 
               <div className="flex items-center justify-end gap-1 text-[10px] text-slate-400 font-mono pt-1">
                 <span>Hoje</span>

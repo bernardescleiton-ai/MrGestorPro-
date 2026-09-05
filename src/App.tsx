@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trash2, Bell, X, MessageCircle, RefreshCw } from 'lucide-react';
+import { Trash2, Bell, X, MessageCircle, RefreshCw, Camera, Sparkles, Copy, Download } from 'lucide-react';
 import { AppData, SectionType, Client, Charge, CompanySettings, SentMessageLog, SystemRestorePoint } from './types';
 import { initialAppData } from './data/initialData';
 import { Sidebar } from './components/Sidebar';
@@ -18,6 +18,7 @@ import { RenewalModal } from './components/RenewalModal';
 import { WhatsAppSendModal } from './components/WhatsAppSendModal';
 import { RenewalSuccessToast, RenewalToastData } from './components/RenewalSuccessToast';
 import { sendAutomatedWhatsApp } from './utils/automatedSender';
+import { copyImageToClipboard, downloadImage } from './utils/imageHelper';
 import { openWhatsApp, openDirectWhatsApp, openWhatsAppLink, normalizePhone, getDefaultMessage, encodeForWhatsApp, formatDateTimeBR, calculateRenewalDueDate } from './utils/formatters';
 import { checkAndTriggerDeviceNotifications } from './utils/notifications';
 import { 
@@ -140,6 +141,11 @@ export default function App() {
     client: null,
     charge: null,
   });
+
+  const [whatsAppPhotoToast, setWhatsAppPhotoToast] = useState<{
+    client: Client;
+    hasCopied: boolean;
+  } | null>(null);
 
   const [syncTrigger, setSyncTrigger] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -927,12 +933,21 @@ export default function App() {
     }
 
     // Envio 100% automatizado direto na hora (foto + texto sem precisar baixar nem anexar manualmente)
-    await sendAutomatedWhatsApp({
+    const result = await sendAutomatedWhatsApp({
       client,
       charge,
       settings: data.settings,
       onConfirmSent: recordSentMessage,
     });
+
+    if (hasImage && sendMode !== 'text_only' && !result.aborted) {
+      if (result.method === 'whatsapp_link') {
+        setWhatsAppPhotoToast({
+          client,
+          hasCopied: Boolean(result.copiedToClipboard),
+        });
+      }
+    }
   };
 
   const handleDeleteSentLog = (logId: string) => {
@@ -1281,6 +1296,84 @@ export default function App() {
               >
                 Fechar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Notice Toast for WhatsApp Photo Sending */}
+      {whatsAppPhotoToast && (
+        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 max-w-md w-[calc(100vw-2rem)] bg-slate-900 text-white rounded-2xl shadow-2xl border border-emerald-500/40 p-4 animate-in slide-in-from-bottom-5 duration-300">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-emerald-500 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
+              <Camera className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-bold text-sm text-emerald-400 flex items-center gap-1.5">
+                  <span>Aviso aberto no WhatsApp!</span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setWhatsAppPhotoToast(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+                  title="Fechar aviso"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-slate-200 mt-1 leading-relaxed">
+                A conversa de <strong>{whatsAppPhotoToast.client.name}</strong> foi aberta com o texto preenchido.
+              </p>
+
+              <div className="mt-2.5 p-2.5 bg-emerald-950/70 border border-emerald-500/30 rounded-xl space-y-1">
+                <p className="text-xs text-emerald-200 font-semibold flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  Foto copiada para a área de transferência!
+                </p>
+                <p className="text-[11px] text-slate-300 leading-snug">
+                  No WhatsApp Web/PC, basta pressionar <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded">Ctrl + V</strong> (ou clicar com o botão direito e <em>Colar</em>) para enviar a imagem junto com o texto.
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  No celular: a imagem foi salva na galeria para anexar via 📎 se desejar.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-800">
+                {data.settings.messageTemplateImage && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await copyImageToClipboard(data.settings.messageTemplateImage!);
+                      alert('Foto copiada para a área de transferência!');
+                    }}
+                    className="flex-1 py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Copiar Foto
+                  </button>
+                )}
+                {data.settings.messageTemplateImage && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      downloadImage(
+                        data.settings.messageTemplateImage!,
+                        data.settings.messageTemplateImageName || 'aviso.jpg'
+                      );
+                    }}
+                    className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Baixar
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setWhatsAppPhotoToast(null)}
+                  className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
         </div>
