@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MrGestor</title>
+    <meta name="description" content="Sistema de gestão de clientes, controle de cobranças e vencimentos." />
+    <meta name="theme-color" content="#1e66f5" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MrGestor" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta property="og:title" content="MrGestor" />
+    <meta property="og:description" content="Sistema de gestão de clientes, controle de cobranças e vencimentos." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      try {
+        if (typeof window !== 'undefined' && window.self === window.top && 'serviceWorker' in navigator) {
+          if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port || window.location.hostname.includes('run.app')) {
+            navigator.serviceWorker.getRegistrations().then(registrations => {
+              for (let registration of registrations) {
+                registration.unregister();
+              }
+            }).catch(e => console.log('SW unregister error:', e));
+          } else {
+            window.addEventListener('load', () => {
+              const basePath = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+              const swUrl = basePath + 'sw.js';
+              navigator.serviceWorker.register(swUrl).catch(() => {
+                navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration error:', err));
+              });
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Service Worker is blocked or disabled in this iframe sandbox context:', e);
+      }
+    </script>
+    <script type="module" crossorigin src="/assets/index-B9qmZpWm.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-XaKqoy-P.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+
