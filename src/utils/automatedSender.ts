@@ -1,5 +1,6 @@
 import { Client, Charge, CompanySettings } from '../types';
-import { getDefaultMessage, openWhatsAppLink } from './formatters';
+import { getDefaultMessage } from './formatters';
+import { sendWhatsAppMessage } from './whatsappMediaSender';
 
 export interface AutomatedSendResult {
   success: boolean;
@@ -24,7 +25,7 @@ export async function sendAutomatedWhatsApp({
 }): Promise<AutomatedSendResult> {
   const textToSend = getDefaultMessage(client, charge, settings);
 
-  openWhatsAppLink(client.phone, textToSend, settings);
+  await sendWhatsAppMessage({ phone: client.phone, text: textToSend, settings, media: settings.whatsappMedia });
 
   if (onConfirmSent) {
     onConfirmSent(client, charge, textToSend || 'Lembrete de vencimento enviado');

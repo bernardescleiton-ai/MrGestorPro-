@@ -1,6 +1,7 @@
 import { Component, ReactNode } from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 
+import { logger } from '../lib/logger';
 interface Props {
   children: ReactNode;
 }
@@ -21,7 +22,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public override componentDidCatch(error: Error, errorInfo: any) {
-    console.error('ErrorBoundary caught error:', error, errorInfo);
+    logger.error('ErrorBoundary caught error:', error, errorInfo);
   }
 
   public override render(): ReactNode {

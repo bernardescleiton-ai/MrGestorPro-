@@ -5,12 +5,13 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
 // Register Service Worker for mobile native status bar notifications
+import { logger } from './lib/logger';
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
-      console.log('ServiceWorker registered successfully:', reg.scope);
+      logger.log('ServiceWorker registered successfully:', reg.scope);
     }).catch((err) => {
-      console.warn('ServiceWorker registration error:', err);
+      logger.warn('ServiceWorker registration error:', err);
     });
   });
 }

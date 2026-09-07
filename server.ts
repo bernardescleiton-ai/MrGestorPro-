@@ -137,7 +137,7 @@ app.post('/api/data', async (req, res) => {
     const sanitizedData = sanitizeDataForFirestore({
       clients: Array.isArray(payload.clients) ? payload.clients : (currentLocal?.clients || []),
       charges: Array.isArray(payload.charges) ? payload.charges : (currentLocal?.charges || []),
-      settings: payload.settings || currentLocal?.settings || {},
+      settings: payload.settings && typeof payload.settings === 'object' ? payload.settings : (currentLocal?.settings || {}),
       sentLogs: Array.isArray(payload.sentLogs) ? payload.sentLogs : (currentLocal?.sentLogs || []),
       updatedAt: typeof payload.updatedAt === 'number' && payload.updatedAt > 0 ? payload.updatedAt : Date.now(),
     });
@@ -151,7 +151,7 @@ app.post('/api/data', async (req, res) => {
     if (canUseFirestore) {
       try {
         const docRef = doc(db, 'app_state', APP_STATE_DOC_ID);
-        await setDoc(docRef, sanitizedData, { merge: true });
+        await setDoc(docRef, sanitizedData);
       } catch {
         firestoreCooldownUntil = now + 15 * 60 * 1000;
       }

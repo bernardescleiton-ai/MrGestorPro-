@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, setLogLevel as setAppLogLevel } from 'firebase/app';
-import { 
+import {
   getFirestore, 
   doc, 
   collection, 
@@ -9,12 +9,14 @@ import {
   onSnapshot, 
   writeBatch,
   enableNetwork,
+  deleteField,
   setLogLevel as setFirestoreLogLevel
 } from 'firebase/firestore';
 import { AppData, Client, Charge, SentMessageLog, CompanySettings, SystemRestorePoint } from '../types';
 import { initialAppData } from '../data/initialData';
 import firebaseConfigFile from '../../firebase-applet-config.json';
 
+import { logger } from './logger';
 // Mute internal Firebase SDK backoff logs
 try {
   setAppLogLevel('silent');
@@ -30,7 +32,7 @@ export function markQuotaExhausted() {
       setAppLogLevel('silent');
       setFirestoreLogLevel('silent');
     } catch {}
-    console.info('Firestore daily write/read quota reached. Switched to local device persistence mode.');
+    logger.info('Firestore daily write/read quota reached. Switched to local device persistence mode.');
   }
 }
 
@@ -135,7 +137,7 @@ export async function fetchAppDataFromFirestore(): Promise<AppData | null> {
       markQuotaExhausted();
       return null;
     }
-    console.warn('Firestore fetch notice:', err);
+    logger.warn('Firestore fetch notice:', err);
     return null;
   }
 }
@@ -191,7 +193,7 @@ export function subscribeToAppData(
       } catch {}
       return;
     }
-    console.warn('Firestore snapshot notice:', err);
+    logger.warn('Firestore snapshot notice:', err);
     if (onError) onError(err);
   };
 
@@ -254,6 +256,22 @@ export function subscribeToAppData(
   };
 }
 
+// Delete WhatsApp media from Cloud Firestore settings
+export async function deleteWhatsAppMediaFromCloud(): Promise<void> {
+  if (isQuotaExhausted) return;
+  try {
+    const settingsRef = doc(db, 'app_settings', SETTINGS_DOC_ID);
+    await setDoc(settingsRef, {
+      settings: {
+        whatsappMedia: deleteField(),
+      },
+      updatedAt: Date.now(),
+    }, { merge: true });
+  } catch (err) {
+    logger.warn('Notice deleting whatsappMedia in Firestore:', err);
+  }
+}
+
 // Save AppData to Firestore
 export async function saveAppDataToFirestore(data: AppData): Promise<void> {
   if (isQuotaExhausted) {
@@ -265,10 +283,20 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
 
     // 1. Settings doc
     const settingsRef = doc(db, 'app_settings', SETTINGS_DOC_ID);
-    batch.set(settingsRef, sanitizeDataForFirestore({
+    const sanitizedSettings = sanitizeDataForFirestore({
       settings: data.settings || {},
       updatedAt: Date.now(),
-    }), { merge: true });
+    });
+
+    // If whatsappMedia is not present in data.settings, overwrite completely so it is dropped
+    if (!data.settings?.whatsappMedia) {
+      if (sanitizedSettings?.settings) {
+        delete sanitizedSettings.settings.whatsappMedia;
+      }
+      batch.set(settingsRef, sanitizedSettings);
+    } else {
+      batch.set(settingsRef, sanitizedSettings, { merge: true });
+    }
 
     // 2. Set/Update all current clients
     for (const client of data.clients || []) {
@@ -304,7 +332,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
       markQuotaExhausted();
       return;
     }
-    console.warn('Firestore write notice:', err);
+    logger.warn('Firestore write notice:', err);
     throw err;
   }
 }
@@ -320,7 +348,7 @@ export async function deleteClientFromFirestore(clientId: string): Promise<void>
       markQuotaExhausted();
       return;
     }
-    console.warn('Delete client error:', err);
+    logger.warn('Delete client error:', err);
   }
 }
 
@@ -340,7 +368,7 @@ export async function deleteClientsBatchFromFirestore(clientIds: string[]): Prom
       markQuotaExhausted();
       return;
     }
-    console.warn('Delete clients batch error:', err);
+    logger.warn('Delete clients batch error:', err);
   }
 }
 
@@ -354,7 +382,7 @@ export async function deleteChargeFromFirestore(chargeId: string): Promise<void>
       markQuotaExhausted();
       return;
     }
-    console.warn('Delete charge error:', err);
+    logger.warn('Delete charge error:', err);
   }
 }
 
@@ -374,7 +402,7 @@ export async function deleteChargesBatchFromFirestore(chargeIds: string[]): Prom
       markQuotaExhausted();
       return;
     }
-    console.warn('Delete charges batch error:', err);
+    logger.warn('Delete charges batch error:', err);
   }
 }
 
@@ -388,7 +416,7 @@ export async function deleteSentLogFromFirestore(logId: string): Promise<void> {
       markQuotaExhausted();
       return;
     }
-    console.warn('Delete sentLog error:', err);
+    logger.warn('Delete sentLog error:', err);
   }
 }
 
@@ -408,7 +436,7 @@ export async function deleteSentLogsBatchFromFirestore(logIds: string[]): Promis
       markQuotaExhausted();
       return;
     }
-    console.warn('Delete sentLogs batch error:', err);
+    logger.warn('Delete sentLogs batch error:', err);
   }
 }
 
@@ -432,7 +460,7 @@ export async function fetchRestorePointsFromFirestore(): Promise<SystemRestorePo
       markQuotaExhausted();
       return [];
     }
-    console.warn('Fetch restore points error:', err);
+    logger.warn('Fetch restore points error:', err);
     return [];
   }
 }
@@ -462,7 +490,7 @@ export function subscribeToRestorePoints(
         markQuotaExhausted();
         return;
       }
-      console.warn('Restore points snapshot error:', err);
+      logger.warn('Restore points snapshot error:', err);
       if (onError) onError(err);
     }
   );
@@ -482,7 +510,7 @@ export async function saveRestorePointToFirestore(point: SystemRestorePoint): Pr
       markQuotaExhausted();
       return;
     }
-    console.warn('Save restore point error:', err);
+    logger.warn('Save restore point error:', err);
     throw err;
   }
 }
@@ -497,7 +525,7 @@ export async function deleteRestorePointFromFirestore(pointId: string): Promise<
       markQuotaExhausted();
       return;
     }
-    console.warn('Delete restore point error:', err);
+    logger.warn('Delete restore point error:', err);
   }
 }
 

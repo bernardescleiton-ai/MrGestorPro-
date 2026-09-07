@@ -43,6 +43,17 @@ export interface NotificationRules {
   notify3DaysAfter: boolean; // 3 dias após o vencimento (3 dias de atraso)
 }
 
+
+export interface WhatsAppMediaAttachment {
+  id: string;
+  name: string;
+  type: 'image' | 'video';
+  mimeType: string;
+  size: number;
+  url: string;
+  uploadedAt: string;
+}
+
 export interface CompanySettings {
   name: string;
   phone: string;
@@ -55,6 +66,7 @@ export interface CompanySettings {
   reminderMessageTemplate?: string; // Template da mensagem de lembrete preventivo
   enableRenewalWhatsAppMessage?: boolean; // Liga/Desliga geral para mensagem de renovação
   whatsappMethod?: 'direct_app' | 'web' | 'wame'; // Método de abertura do WhatsApp (App direto, Web, ou wa.me)
+  whatsappMedia?: WhatsAppMediaAttachment; // Mídia padrão anexada aos próximos envios de WhatsApp
   managerPhone?: string; // Celular do gestor para receber alertas
   notificationRules?: NotificationRules;
 }

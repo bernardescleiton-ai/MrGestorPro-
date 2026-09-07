@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, Package, Calendar, Check, MessageSquare, DollarSign, Clock, ArrowRight, CheckCircle2, Sparkles, Save } from 'lucide-react';
-import { Client, CompanySettings } from '../types';
+import { X, RefreshCw, Package, Calendar, Check, MessageSquare, DollarSign, Clock, ArrowRight, CheckCircle2, Sparkles, Save, Copy, Download } from 'lucide-react';
+import { Client, CompanySettings, WhatsAppMediaAttachment } from '../types';
 import { dateBR, todayStr, formatDateTimeBR, encodeForWhatsApp, normalizePhone, calculateRenewalDueDate } from '../utils/formatters';
+import { uploadWhatsAppMedia, deleteWhatsAppMedia } from '../lib/whatsappMedia';
+import { MediaPreview } from './MediaPreview';
 
 interface RenewalModalProps {
   isOpen: boolean;
@@ -16,8 +18,10 @@ interface RenewalModalProps {
     sendWhatsApp: boolean;
     customDateStr?: string;
     customWhatsAppMessage?: string;
+    media?: WhatsAppMediaAttachment | null;
   }) => void;
   onSaveRenewalTemplate?: (template: string) => void;
+  onSaveSettings?: (settings: CompanySettings) => void;
 }
 
 export const RenewalModal: React.FC<RenewalModalProps> = ({
@@ -27,6 +31,7 @@ export const RenewalModal: React.FC<RenewalModalProps> = ({
   onClose,
   onConfirmRenewal,
   onSaveRenewalTemplate,
+  onSaveSettings,
 }) => {
   const [selectedMonths, setSelectedMonths] = useState<number>(1);
   const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
@@ -39,6 +44,9 @@ export const RenewalModal: React.FC<RenewalModalProps> = ({
   const [customMessage, setCustomMessage] = useState<string>('');
   const [hasManuallyEditedMsg, setHasManuallyEditedMsg] = useState<boolean>(false);
   const [isSavedNotice, setIsSavedNotice] = useState<boolean>(false);
+  const [selectedMedia, setSelectedMedia] = useState<WhatsAppMediaAttachment | null>(settings?.whatsappMedia || null);
+  const [isMediaUploading, setIsMediaUploading] = useState(false);
+  const [mediaError, setMediaError] = useState('');
 
   // Helper to generate default renewal message using settings or standard template
   const generateDefaultMessage = (clientObj: Client, dueDateStr: string, amountStr: string): string => {
@@ -65,6 +73,8 @@ export const RenewalModal: React.FC<RenewalModalProps> = ({
       setRecordPaid(true);
       setSendWhatsApp(settings?.enableRenewalWhatsAppMessage ?? true);
       setHasManuallyEditedMsg(false);
+      setSelectedMedia(settings?.whatsappMedia || null);
+      setMediaError('');
 
       const initialDueDateStr = calculateRenewalDueDate(client.dueDate, 1);
       const [initDate, initTime] = initialDueDateStr.includes('T')
@@ -77,7 +87,7 @@ export const RenewalModal: React.FC<RenewalModalProps> = ({
       const fullStr = initDate ? (initTime ? `${initDate}T${initTime}` : initDate) : initialDueDateStr;
       setCustomMessage(generateDefaultMessage(client, fullStr, ''));
     }
-  }, [client, isOpen]);
+  }, [client, isOpen, settings?.whatsappMedia]);
 
   // Handle package selection
   const handlePackageSelect = (months: number) => {
@@ -148,6 +158,40 @@ export const RenewalModal: React.FC<RenewalModalProps> = ({
     setTimeout(() => setIsSavedNotice(false), 3000);
   };
 
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !onSaveSettings) return;
+    setMediaError('');
+    setIsMediaUploading(true);
+    try {
+      const previous = selectedMedia;
+      const uploaded = await uploadWhatsAppMedia(file, `wa-${crypto.randomUUID()}`);
+      const updatedSettings = { ...settings, whatsappMedia: uploaded };
+      setSelectedMedia(uploaded);
+      onSaveSettings(updatedSettings);
+      if (previous && previous.id !== uploaded.id) {
+        await deleteWhatsAppMedia(previous);
+      }
+    } catch (err) {
+      setMediaError(err instanceof Error ? err.message : 'Não foi possível salvar a mídia.');
+    } finally {
+      setIsMediaUploading(false);
+    }
+  };
+
+  const handleRemoveMedia = async () => {
+    const media = selectedMedia;
+    setSelectedMedia(null);
+    setMediaError('');
+    if (onSaveSettings) {
+      const updated = { ...settings };
+      delete updated.whatsappMedia;
+      onSaveSettings(updated);
+    }
+    if (media) await deleteWhatsAppMedia(media);
+  };
+
   const handleInsertTag = (tag: string) => {
     setCustomMessage((prev) => (prev ? `${prev} ${tag}` : tag));
     setHasManuallyEditedMsg(true);
@@ -166,6 +210,7 @@ export const RenewalModal: React.FC<RenewalModalProps> = ({
       sendWhatsApp,
       customDateStr: calculatedNewDueDateStr,
       customWhatsAppMessage: customMessage,
+      media: selectedMedia,
     });
   };
 
@@ -508,6 +553,62 @@ export const RenewalModal: React.FC<RenewalModalProps> = ({
                   placeholder="Digite aqui a mensagem personalizada que será enviada para o cliente no WhatsApp..."
                   className="w-full bg-white border border-slate-200 rounded-xl p-2.5 sm:p-3 text-xs font-sans text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none leading-relaxed shadow-2xs transition-all resize-y"
                 />
+                {/* Attached media preview inside RenewalModal */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <span>📎</span> Mídia Anexada ao Envio
+                    </span>
+                    <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer transition-all ${isMediaUploading ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait' : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50'}`}>
+                      <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" className="hidden" onChange={handleMediaUpload} disabled={isMediaUploading} />
+                      <span>{isMediaUploading ? 'Salvando...' : (selectedMedia ? 'Trocar Mídia' : '+ Anexar Imagem ou Vídeo')}</span>
+                    </label>
+                  </div>
+
+                  {selectedMedia ? (
+                    <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-emerald-200">
+                      <div className="w-14 h-14 rounded-lg overflow-hidden border border-emerald-300 bg-slate-100 shrink-0 flex items-center justify-center shadow-2xs">
+                        <MediaPreview media={selectedMedia} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="text-xs font-bold text-slate-800 truncate">{selectedMedia.name}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          {(selectedMedia.size / (1024 * 1024)).toFixed(2)} MB • {selectedMedia.type === 'image' ? 'Imagem' : 'Vídeo'}
+                        </p>
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          {selectedMedia.type === 'image' && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const { copyMediaImageToClipboard } = await import('../utils/whatsappMediaSender');
+                                void copyMediaImageToClipboard(selectedMedia);
+                              }}
+                              className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold flex items-center gap-1 transition-all"
+                            >
+                              <Copy className="w-2.5 h-2.5" /> Copiar Foto (Ctrl+V)
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handleRemoveMedia}
+                            className="px-2 py-0.5 text-rose-600 hover:bg-rose-50 rounded text-[10px] font-bold transition-colors"
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">Nenhuma imagem anexada para esta mensagem de renovação.</p>
+                  )}
+
+                  {selectedMedia && (
+                    <p className="text-[10px] text-emerald-800 font-medium leading-relaxed">
+                      💡 Ao confirmar a renovação, a imagem será copiada para a área de transferência. No WhatsApp, basta pressionar <strong className="font-mono bg-white px-1 py-0.5 rounded border border-emerald-300">Ctrl + V</strong> (Colar) para enviar a imagem junto com o texto!
+                    </p>
+                  )}
+                </div>
+                {mediaError && <p className="text-[10px] font-semibold text-rose-600">{mediaError}</p>}
 
                 {isSavedNotice && (
                   <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-2 animate-in fade-in duration-200 font-semibold">

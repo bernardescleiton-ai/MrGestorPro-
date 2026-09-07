@@ -1,6 +1,7 @@
 import { AppData, NotificationRules, Client, Charge } from '../types';
-import { dateBR, todayStr, formatDateTimeBR, getDefaultMessage } from './formatters';
+import { dateBR, todayStr, getDefaultMessage } from './formatters';
 
+import { logger } from '../lib/logger';
 const NOTIFIED_LOG_KEY = 'gc_notified_log_v1';
 
 export const defaultNotificationRules: NotificationRules = {
@@ -63,7 +64,7 @@ export async function requestDeviceNotificationPermission(): Promise<boolean> {
     const permission = await Notification.requestPermission();
     return permission === 'granted';
   } catch (err) {
-    console.error('Error requesting notification permission:', err);
+    logger.error('Error requesting notification permission:', err);
     return false;
   }
 }
@@ -95,7 +96,7 @@ export function playNotificationSound() {
     osc.start(now);
     osc.stop(now + 0.6);
   } catch (e) {
-    console.debug('Audio chime failed:', e);
+    logger.debug('Audio chime failed:', e);
   }
 }
 
@@ -117,7 +118,7 @@ export async function showDeviceNotification(title: string, options?: Notificati
         win.Android.showNotification(title, options?.body || '');
         return true;
       } catch (e) {
-        console.warn('Android.showNotification bridge call failed:', e);
+        logger.warn('Android.showNotification bridge call failed:', e);
       }
     }
     if (win.AndroidInterface && typeof win.AndroidInterface.showNotification === 'function') {
@@ -125,7 +126,7 @@ export async function showDeviceNotification(title: string, options?: Notificati
         win.AndroidInterface.showNotification(title, options?.body || '');
         return true;
       } catch (e) {
-        console.warn('AndroidInterface.showNotification bridge call failed:', e);
+        logger.warn('AndroidInterface.showNotification bridge call failed:', e);
       }
     }
     if (win.AndroidBridge && typeof win.AndroidBridge.postMessage === 'function') {
@@ -169,7 +170,7 @@ export async function showDeviceNotification(title: string, options?: Notificati
         return true;
       }
     } catch (swErr) {
-      console.warn('ServiceWorker showNotification attempt failed:', swErr);
+      logger.warn('ServiceWorker showNotification attempt failed:', swErr);
     }
   }
 
@@ -183,7 +184,7 @@ export async function showDeviceNotification(title: string, options?: Notificati
       });
       return true;
     } catch (err) {
-      console.warn('Standard Notification constructor not available in this environment:', err);
+      logger.warn('Standard Notification constructor not available in this environment:', err);
       return false;
     }
   }
@@ -235,7 +236,7 @@ function setTodayNotifiedMap(map: Record<string, boolean>) {
   try {
     localStorage.setItem(todayKey, JSON.stringify(map));
   } catch (e) {
-    console.error('Error saving notification log:', e);
+    logger.error('Error saving notification log:', e);
   }
 }
 

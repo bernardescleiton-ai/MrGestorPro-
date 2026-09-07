@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Sparkles, Calendar, DollarSign, MessageCircle, X, Clock } from 'lucide-react';
 import { Client, CompanySettings } from '../types';
-import { formatDateTimeBR, normalizePhone, openWhatsAppLink } from '../utils/formatters';
+import { formatDateTimeBR, normalizePhone } from '../utils/formatters';
+import { sendWhatsAppMessage } from '../utils/whatsappMediaSender';
 
 export interface RenewalToastData {
   client: Client;
@@ -66,7 +67,7 @@ export const RenewalSuccessToast: React.FC<RenewalSuccessToastProps> = ({
       amount > 0 ? `\n💰 *Valor:* R$ ${amount.toFixed(2).replace('.', ',')}` : ''
     }\n\nAgradecemos a preferência!`;
     const messageToSend = customMessage && customMessage.trim() ? customMessage : defaultMsg;
-    openWhatsAppLink(client.phone, messageToSend, settings);
+    void sendWhatsAppMessage({ phone: client.phone, text: messageToSend, settings, media: settings.whatsappMedia });
   };
 
   return (

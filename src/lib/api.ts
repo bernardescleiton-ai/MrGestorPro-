@@ -1,6 +1,6 @@
 import { AppData, CompanySettings, SystemRestorePoint } from '../types';
 import { initialAppData } from '../data/initialData';
-import { 
+import {
   subscribeToAppData, 
   saveAppDataToFirestore, 
   fetchAppDataFromFirestore, 
@@ -13,10 +13,12 @@ import {
   fetchRestorePointsFromFirestore,
   subscribeToRestorePoints,
   saveRestorePointToFirestore,
-  deleteRestorePointFromFirestore
+  deleteRestorePointFromFirestore,
+  deleteWhatsAppMediaFromCloud
 } from './firebase';
 import { cleanClientName, isDateString } from '../utils/clientParser';
 
+import { logger } from './logger';
 export { 
   deleteClientFromFirestore, 
   deleteClientsBatchFromFirestore,
@@ -27,7 +29,8 @@ export {
   fetchRestorePointsFromFirestore,
   subscribeToRestorePoints,
   saveRestorePointToFirestore,
-  deleteRestorePointFromFirestore
+  deleteRestorePointFromFirestore,
+  deleteWhatsAppMediaFromCloud
 };
 
 export function sanitizeAppData(raw: any): AppData {
@@ -116,7 +119,7 @@ export async function fetchAppData(): Promise<{ data: AppData | null; exists: bo
       };
     }
   } catch (firestoreErr) {
-    console.warn('Firestore fetch notice:', firestoreErr);
+    logger.warn('Firestore fetch notice:', firestoreErr);
   }
 
   // 2. If running on local server fallback
@@ -153,7 +156,7 @@ export async function saveAppData(data: AppData, _debounceMs: number = 0): Promi
   try {
     await saveAppDataToFirestore(safeData);
   } catch (err) {
-    console.warn('Cloud Firestore save notice:', err);
+    logger.warn('Cloud Firestore save notice:', err);
   }
 
   // 2. If running on local dev server, also persist locally
@@ -197,13 +200,43 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
     ? { ...initialAppData.settings, ...cloudSettings, ...localSettings }
     : { ...initialAppData.settings, ...localSettings, ...cloudSettings };
 
-  // Prioritize active choice from newest update
+  // Resilient resolution of whatsappMedia
+  let chosenMedia: WhatsAppMediaAttachment | undefined;
+  if (localSettings.whatsappMedia && cloudSettings.whatsappMedia) {
+    const localMediaTime = new Date(localSettings.whatsappMedia.uploadedAt || 0).getTime();
+    const cloudMediaTime = new Date(cloudSettings.whatsappMedia.uploadedAt || 0).getTime();
+    if (localMediaTime !== cloudMediaTime) {
+      chosenMedia = localMediaTime >= cloudMediaTime ? localSettings.whatsappMedia : cloudSettings.whatsappMedia;
+    } else {
+      chosenMedia = isLocalNewer ? localSettings.whatsappMedia : cloudSettings.whatsappMedia;
+    }
+  } else if (localSettings.whatsappMedia && !cloudSettings.whatsappMedia) {
+    const localMediaTime = new Date(localSettings.whatsappMedia.uploadedAt || 0).getTime();
+    const isRecentUpload = Date.now() - localMediaTime < 120000;
+    if (isLocalNewer || isRecentUpload || (cloudUpdated - localUpdated < 5000)) {
+      chosenMedia = localSettings.whatsappMedia;
+    } else {
+      chosenMedia = undefined;
+    }
+  } else if (!localSettings.whatsappMedia && cloudSettings.whatsappMedia) {
+    if (!isLocalNewer || (localUpdated - cloudUpdated < 5000)) {
+      chosenMedia = cloudSettings.whatsappMedia;
+    } else {
+      chosenMedia = undefined;
+    }
+  }
+
   const mergedSettings: CompanySettings = {
     ...baseSettings,
     whatsappMethod: isLocalNewer
       ? (localSettings.whatsappMethod || cloudSettings.whatsappMethod || 'direct_app')
       : (cloudSettings.whatsappMethod || localSettings.whatsappMethod || 'direct_app'),
+    whatsappMedia: chosenMedia || undefined,
   };
+
+  if (!mergedSettings.whatsappMedia) {
+    delete mergedSettings.whatsappMedia;
+  }
 
   return {
     clients: Array.isArray(cloud.clients) ? cloud.clients : (local?.clients || []),

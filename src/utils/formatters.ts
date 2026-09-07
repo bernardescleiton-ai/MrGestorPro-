@@ -22,6 +22,18 @@ export const normalizePhone = (p: string): string => {
   return p.replace(/\D/g, '');
 };
 
+export const formatPhoneBR = (phone: string): string => {
+  const digits = normalizePhone(phone);
+  if (!digits) return '';
+  if (digits.length === 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return phone;
+};
+
 export type ChargeStatus = 'pending' | 'paid' | 'late';
 
 export const getChargeStatus = (c: Charge): ChargeStatus => {
@@ -156,7 +168,6 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
 
   // direct_app: WhatsApp / WhatsApp Business direct application protocol (triggers app directly on Android/iOS/PC)
   const nativeAppUrl = `whatsapp://send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
-  const webFallbackUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
 
   try {
     const a = document.createElement('a');
