@@ -23,18 +23,7 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, className = '
     let createdObjectUrl: string | null = null;
 
     const resolveMediaUrl = async () => {
-      // 1. If it is already a base64 Data URL or standard https URL, use immediately
-      if (media.url && (media.url.startsWith('data:') || media.url.startsWith('http://') || media.url.startsWith('https://'))) {
-        if (isCurrent) {
-          setResolvedUrl(media.url);
-          setLoading(false);
-          return;
-        }
-      }
-
-      setLoading(true);
-
-      // 2. Try loading directly from IndexedDB (local storage - most reliable across reloads)
+      // 1. Try loading directly from IndexedDB (instant local storage access)
       if (media.id) {
         try {
           const blob = await getMediaFromIDB(media.id);
@@ -45,22 +34,15 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, className = '
             return;
           }
         } catch {
-          // continue fallback
+          // continue to fallback
         }
       }
 
-      // 3. If it's a blob: URL, check if still valid
-      if (media.url && media.url.startsWith('blob:') && isCurrent) {
-        try {
-          const res = await fetch(media.url);
-          if (res.ok && isCurrent) {
-            setResolvedUrl(media.url);
-            setLoading(false);
-            return;
-          }
-        } catch {
-          // Dead blob URL
-        }
+      // 2. Fall back to media.url (https, data, or blob URL)
+      if (media.url && isCurrent) {
+        setResolvedUrl(media.url);
+        setLoading(false);
+        return;
       }
 
       if (isCurrent) {

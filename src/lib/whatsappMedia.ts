@@ -26,8 +26,17 @@ async function uploadToFirebaseStorage(path: string, data: Blob | File, contentT
     if (!apps.length) return null;
     const storage = getStorage(apps[0]);
     const fileRef = storageRef(storage, path);
-    await uploadBytes(fileRef, data, contentType ? { contentType } : undefined);
-    return await getDownloadURL(fileRef);
+
+    const uploadTask = (async () => {
+      await uploadBytes(fileRef, data, contentType ? { contentType } : undefined);
+      return await getDownloadURL(fileRef);
+    })();
+
+    const timeoutTask = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), 3000);
+    });
+
+    return await Promise.race([uploadTask, timeoutTask]);
   } catch {
     return null;
   }
@@ -43,49 +52,46 @@ async function deleteFromFirebaseStorage(path: string): Promise<void> {
   } catch {}
 }
 
-function processImageToDataUrl(file: File): Promise<{ blob: Blob; dataUrl: string; mimeType: string }> {
-  return new Promise((resolve, reject) => {
+function processImageToBlob(file: File): Promise<{ blob: Blob; mimeType: string }> {
+  return new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Falha ao ler o arquivo de imagem.'));
+    reader.onerror = () => resolve({ blob: file, mimeType: file.type });
     reader.onload = () => {
       const img = new Image();
-      img.onerror = () => reject(new Error('Falha ao carregar a imagem para processamento.'));
+      img.onerror = () => resolve({ blob: file, mimeType: file.type });
       img.onload = () => {
-        const maxDimension = 1280;
-        let { width, height } = img;
-        if (width > maxDimension || height > maxDimension) {
-          if (width > height) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
-          } else {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
-          }
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          const rawDataUrl = reader.result as string;
-          resolve({ blob: file, dataUrl: rawDataUrl, mimeType: file.type });
-          return;
-        }
-
-        ctx.drawImage(img, 0, 0, width, height);
-
-        const isPng = file.type === 'image/png';
-        const targetMime = isPng ? 'image/png' : 'image/jpeg';
-        const quality = isPng ? undefined : 0.82;
-
         try {
-          const dataUrl = canvas.toDataURL(targetMime, quality);
+          const maxDimension = 1280;
+          let { width, height } = img;
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve({ blob: file, mimeType: file.type });
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const isPng = file.type === 'image/png';
+          const targetMime = isPng ? 'image/png' : 'image/jpeg';
+          const quality = isPng ? undefined : 0.82;
+
           canvas.toBlob(
-            (blob) => {
+            (b) => {
               resolve({
-                blob: blob || file,
-                dataUrl,
+                blob: b || file,
                 mimeType: targetMime,
               });
             },
@@ -93,8 +99,7 @@ function processImageToDataUrl(file: File): Promise<{ blob: Blob; dataUrl: strin
             quality
           );
         } catch {
-          const rawDataUrl = reader.result as string;
-          resolve({ blob: file, dataUrl: rawDataUrl, mimeType: file.type });
+          resolve({ blob: file, mimeType: file.type });
         }
       };
       img.src = reader.result as string;
@@ -109,52 +114,40 @@ export async function uploadWhatsAppMedia(file: File, id: string): Promise<Whats
 
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
 
+  let processedBlob: Blob = file;
+  let mimeType = file.type;
+
   if (validation.type === 'image') {
     try {
-      const { blob, dataUrl, mimeType } = await processImageToDataUrl(file);
-      await saveMediaToIDB(id, blob);
-
-      const storagePath = `whatsapp-media/${id}-${safeName}`;
-      const cloudUrl = await uploadToFirebaseStorage(storagePath, blob, mimeType);
-
-      return {
-        id,
-        name: safeName,
-        type: 'image',
-        mimeType,
-        size: blob.size,
-        url: cloudUrl || dataUrl,
-        uploadedAt: new Date().toISOString(),
-      };
+      const res = await processImageToBlob(file);
+      processedBlob = res.blob;
+      mimeType = res.mimeType;
     } catch {
-      await saveMediaToIDB(id, file);
-      const storagePath = `whatsapp-media/${id}-${safeName}`;
-      const cloudUrl = await uploadToFirebaseStorage(storagePath, file, file.type);
-      const url = cloudUrl || URL.createObjectURL(file);
-      return {
-        id,
-        name: safeName,
-        type: 'image',
-        mimeType: file.type,
-        size: file.size,
-        url,
-        uploadedAt: new Date().toISOString(),
-      };
+      processedBlob = file;
     }
   }
 
-  await saveMediaToIDB(id, file);
+  // 1. Save to local IndexedDB first for instant access
+  try {
+    await saveMediaToIDB(id, processedBlob);
+  } catch (e) {
+    console.warn('Could not save to IDB:', e);
+  }
+
+  // 2. Upload to Firebase Storage with strict timeout
   const storagePath = `whatsapp-media/${id}-${safeName}`;
-  const cloudUrl = await uploadToFirebaseStorage(storagePath, file, file.type);
-  const url = cloudUrl || URL.createObjectURL(file);
+  const cloudUrl = await uploadToFirebaseStorage(storagePath, processedBlob, mimeType);
+
+  // 3. Fallback to blob URL if offline/timeout
+  const localUrl = typeof window !== 'undefined' ? URL.createObjectURL(processedBlob) : '';
 
   return {
     id,
     name: safeName,
-    type: 'video',
-    mimeType: file.type,
-    size: file.size,
-    url,
+    type: validation.type,
+    mimeType,
+    size: processedBlob.size,
+    url: cloudUrl || localUrl,
     uploadedAt: new Date().toISOString(),
   };
 }

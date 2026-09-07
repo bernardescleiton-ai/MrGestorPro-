@@ -17,7 +17,7 @@ function getDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveMediaToIDB(id: string, file: File): Promise<void> {
+export async function saveMediaToIDB(id: string, file: File | Blob): Promise<void> {
   const arrayBuffer = await file.arrayBuffer();
   const db = await getDB();
   return new Promise((resolve, reject) => {
