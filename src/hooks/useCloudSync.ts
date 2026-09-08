@@ -3,6 +3,7 @@ import type { AppData } from '../types';
 import { subscribeToApiData, saveAppData, mergeAppData, fetchAppData } from '../lib/api';
 import type { LiveToast } from './useAppData';
 import { checkAndTriggerDeviceNotifications } from '../utils/notifications';
+import { markHasPendingLocalChanges, syncLocalStateToFirebase, flushPendingDeletionsToFirestore } from '../lib/offlineSyncManager';
 
 import { logger } from '../lib/logger';
 export const useCloudSync = ({
@@ -36,12 +37,22 @@ export const useCloudSync = ({
         setRawData(merged);
         lastSavedDataJsonRef.current = JSON.stringify({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
         try { localStorage.setItem('gc_v1_data', JSON.stringify(merged)); } catch {}
+      } else {
+        hasFetchedCloud.current = true;
       }
-    }).catch(() => {});
+    }).catch(() => {
+      hasFetchedCloud.current = true;
+    });
   }, []);
 
   useEffect(() => {
-    const handleSyncReset = () => setSyncTrigger((prev) => prev + 1);
+    const handleSyncReset = () => {
+      // Auto flush pending local offline edits & deletions when coming back online
+      syncLocalStateToFirebase(dataRef.current).then((success) => {
+        if (success) setSyncError(null);
+      }).catch(() => {});
+      setSyncTrigger((prev) => prev + 1);
+    };
     window.addEventListener('focus', handleSyncReset);
     window.addEventListener('online', handleSyncReset);
     const handleVisibilityChange = () => { if (document.visibilityState === 'visible') handleSyncReset(); };
@@ -73,7 +84,7 @@ export const useCloudSync = ({
       (error) => {
         logger.warn('Sync stream notice:', error);
         if (error?.message?.includes('Quota exceeded') || error?.message?.includes('resource-exhausted')) {
-          setSyncError('Cota diária gratuita do Firebase atingida (dados mantidos no aparelho)');
+          setSyncError('Cota diária gratuita do Firebase atingida (dados mantidos com segurança no aparelho)');
         }
       },
     );
@@ -82,11 +93,16 @@ export const useCloudSync = ({
 
   useEffect(() => {
     try {
+      // 1. Instant local persistence to device storage
       localStorage.setItem('gc_v1_data', JSON.stringify(data));
+      markHasPendingLocalChanges();
+
       if (!hasFetchedCloud.current) return;
       const currentJson = JSON.stringify({ clients: data.clients, charges: data.charges, settings: data.settings, sentLogs: data.sentLogs });
       if (currentJson !== lastSavedDataJsonRef.current) {
         lastSavedDataJsonRef.current = currentJson;
+        // 2. Sync to Firebase
+        flushPendingDeletionsToFirestore().catch(() => {});
         saveAppData(data).then(() => setSyncError(null)).catch((err) => {
           logger.warn('Save app data notice:', err);
           if (err?.message?.includes('Quota exceeded') || err?.message?.includes('resource-exhausted')) setSyncError('Cota diária do Firebase atingida. Seus dados estão salvos no aparelho!');

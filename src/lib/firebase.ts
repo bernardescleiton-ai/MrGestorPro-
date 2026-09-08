@@ -10,6 +10,8 @@ import {
   writeBatch,
   enableNetwork,
   deleteField,
+  enableIndexedDbPersistence,
+  getDocFromServer,
   setLogLevel as setFirestoreLogLevel
 } from 'firebase/firestore';
 import { AppData, Client, Charge, SentMessageLog, CompanySettings, SystemRestorePoint } from '../types';
@@ -59,8 +61,29 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
+// Enable offline persistence in IndexedDB for Firestore
+enableIndexedDbPersistence(db).catch((err) => {
+  if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+    logger.warn('Firestore offline persistence notice:', err);
+  }
+});
+
 // Ensure network connection is enabled for real-time synchronization
 enableNetwork(db).catch(() => {});
+
+// Test and validate server connection (conforms to Firebase Skill guidelines)
+export async function testFirestoreConnection(): Promise<boolean> {
+  try {
+    await getDocFromServer(doc(db, 'app_settings', 'main_settings'));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      logger.info('Firestore client is currently offline. Operating from internal device storage.');
+    }
+    return false;
+  }
+}
+testFirestoreConnection().catch(() => {});
 
 const SETTINGS_DOC_ID = 'main_settings';
 

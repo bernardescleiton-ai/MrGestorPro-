@@ -188,7 +188,77 @@ export function subscribeToApiData(
   );
 }
 
+import { getPendingDeletions } from './offlineSyncManager';
+
 export function mergeAppData(local: AppData, cloud: AppData): AppData {
+  const pendingDeletions = getPendingDeletions();
+  const deletedClientIds = new Set(pendingDeletions.clients);
+  const deletedChargeIds = new Set(pendingDeletions.charges);
+  const deletedLogIds = new Set(pendingDeletions.logs);
+
+  const localClients = Array.isArray(local?.clients) ? local.clients : [];
+  const cloudClients = Array.isArray(cloud?.clients) ? cloud.clients : [];
+
+  const localCharges = Array.isArray(local?.charges) ? local.charges : [];
+  const cloudCharges = Array.isArray(cloud?.charges) ? cloud.charges : [];
+
+  const localLogs = Array.isArray(local?.sentLogs) ? local.sentLogs : [];
+  const cloudLogs = Array.isArray(cloud?.sentLogs) ? cloud.sentLogs : [];
+
+  // Smart merge clients: preserve local offline creations & updates, respect local deletions
+  const clientMap = new Map<string, import('../types').Client>();
+  for (const c of cloudClients) {
+    if (c?.id && !deletedClientIds.has(c.id)) {
+      clientMap.set(c.id, c);
+    }
+  }
+  for (const c of localClients) {
+    if (c?.id && !deletedClientIds.has(c.id)) {
+      if (!clientMap.has(c.id)) {
+        clientMap.set(c.id, c);
+      } else {
+        const existingCloud = clientMap.get(c.id)!;
+        clientMap.set(c.id, { ...existingCloud, ...c });
+      }
+    }
+  }
+  const mergedClients = Array.from(clientMap.values());
+
+  // Smart merge charges: preserve local offline creations & updates, respect local deletions
+  const chargeMap = new Map<string, import('../types').Charge>();
+  for (const ch of cloudCharges) {
+    if (ch?.id && !deletedChargeIds.has(ch.id)) {
+      chargeMap.set(ch.id, ch);
+    }
+  }
+  for (const ch of localCharges) {
+    if (ch?.id && !deletedChargeIds.has(ch.id)) {
+      if (!chargeMap.has(ch.id)) {
+        chargeMap.set(ch.id, ch);
+      } else {
+        const existingCloud = chargeMap.get(ch.id)!;
+        chargeMap.set(ch.id, { ...existingCloud, ...ch });
+      }
+    }
+  }
+  const mergedCharges = Array.from(chargeMap.values());
+
+  // Smart merge sent logs
+  const logMap = new Map<string, import('../types').SentMessageLog>();
+  for (const l of cloudLogs) {
+    if (l?.id && !deletedLogIds.has(l.id)) {
+      logMap.set(l.id, l);
+    }
+  }
+  for (const l of localLogs) {
+    if (l?.id && !deletedLogIds.has(l.id)) {
+      if (!logMap.has(l.id)) {
+        logMap.set(l.id, l);
+      }
+    }
+  }
+  const mergedLogs = Array.from(logMap.values());
+
   const localSettings: Partial<CompanySettings> = local?.settings || {};
   const cloudSettings: Partial<CompanySettings> = cloud?.settings || {};
 
@@ -239,10 +309,10 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
   }
 
   return {
-    clients: Array.isArray(cloud.clients) ? cloud.clients : (local?.clients || []),
-    charges: Array.isArray(cloud.charges) ? cloud.charges : (local?.charges || []),
+    clients: mergedClients,
+    charges: mergedCharges,
     settings: mergedSettings,
-    sentLogs: Array.isArray(cloud.sentLogs) ? cloud.sentLogs : (local?.sentLogs || []),
+    sentLogs: mergedLogs,
     updatedAt: Math.max(cloudUpdated, localUpdated),
   };
 }

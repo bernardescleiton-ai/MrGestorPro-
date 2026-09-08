@@ -3,6 +3,7 @@ import type { AppData, Charge, SectionType } from '../types';
 import type { ConfirmModal } from './useAppData';
 import { deleteChargeFromFirestore, deleteChargesBatchFromFirestore, deleteSentLogFromFirestore, deleteSentLogsBatchFromFirestore, deleteWhatsAppMediaFromCloud } from '../lib/api';
 import { deleteWhatsAppMedia } from '../lib/whatsappMedia';
+import { trackChargeDeletion, trackChargesBatchDeletion, trackLogDeletion, markHasPendingLocalChanges } from '../lib/offlineSyncManager';
 
 export const useChargeActions = ({ data, setData, generateUUID, setActiveSection, setChargeDefaultClientId, setIsChargeModalOpen, setConfirmModal }: {
   data: AppData;
@@ -64,7 +65,10 @@ export const useChargeActions = ({ data, setData, generateUUID, setActiveSection
 
   const handleDeleteCharge = useCallback((chargeId: string) => {
     setConfirmModal({ isOpen: true, title: 'Excluir Cobrança', message: 'Deseja excluir esta cobrança permanentemente?', onConfirm: () => {
-      setData((prev) => ({ ...prev, charges: prev.charges.filter((ch) => ch.id !== chargeId) })); deleteChargeFromFirestore(chargeId).catch(() => {}); setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+      trackChargeDeletion(chargeId);
+      setData((prev) => ({ ...prev, charges: prev.charges.filter((ch) => ch.id !== chargeId) }));
+      deleteChargeFromFirestore(chargeId).catch(() => {});
+      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
     } });
   }, [setConfirmModal, setData]);
 
@@ -85,21 +89,32 @@ export const useChargeActions = ({ data, setData, generateUUID, setActiveSection
 
   const handleDeleteSentLog = useCallback((logId: string) => {
     setConfirmModal({ isOpen: true, title: 'Excluir do Histórico', message: 'Deseja excluir este registro do histórico de mensagens?', onConfirm: () => {
-      setData((prev) => ({ ...prev, sentLogs: (prev.sentLogs || []).filter((l) => l.id !== logId) })); deleteSentLogFromFirestore(logId).catch(() => {}); setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+      trackLogDeletion(logId);
+      setData((prev) => ({ ...prev, sentLogs: (prev.sentLogs || []).filter((l) => l.id !== logId) }));
+      deleteSentLogFromFirestore(logId).catch(() => {});
+      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
     } });
   }, [setConfirmModal, setData]);
 
   const handleDeleteSentLogsBatch = useCallback((logIds: string[]) => {
     if (!logIds.length) return;
     setConfirmModal({ isOpen: true, title: 'Excluir Histórico em Massa', message: `Tem certeza de que deseja excluir permanentemente os ${logIds.length} registros selecionados do histórico?`, onConfirm: () => {
-      const idSet = new Set(logIds); setData((prev) => ({ ...prev, sentLogs: (prev.sentLogs || []).filter((l) => !idSet.has(l.id)) })); deleteSentLogsBatchFromFirestore(logIds).catch(() => {}); setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+      for (const id of logIds) trackLogDeletion(id);
+      const idSet = new Set(logIds);
+      setData((prev) => ({ ...prev, sentLogs: (prev.sentLogs || []).filter((l) => !idSet.has(l.id)) }));
+      deleteSentLogsBatchFromFirestore(logIds).catch(() => {});
+      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
     } });
   }, [setConfirmModal, setData]);
 
   const handleDeleteChargesBatch = useCallback((chargeIds: string[]) => {
     if (!chargeIds.length) return;
     setConfirmModal({ isOpen: true, title: 'Excluir Vencimentos em Massa', message: `Tem certeza de que deseja excluir permanentemente os ${chargeIds.length} vencimentos selecionados?`, onConfirm: () => {
-      const idSet = new Set(chargeIds); setData((prev) => ({ ...prev, charges: prev.charges.filter((ch) => !idSet.has(ch.id)) })); deleteChargesBatchFromFirestore(chargeIds).catch(() => {}); setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+      trackChargesBatchDeletion(chargeIds);
+      const idSet = new Set(chargeIds);
+      setData((prev) => ({ ...prev, charges: prev.charges.filter((ch) => !idSet.has(ch.id)) }));
+      deleteChargesBatchFromFirestore(chargeIds).catch(() => {});
+      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
     } });
   }, [setConfirmModal, setData]);
 
