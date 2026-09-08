@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Bell, X, MessageCircle, RefreshCw } from 'lucide-react';
+import { Trash2, Bell, X, MessageCircle } from 'lucide-react';
 import type { AppData, Client, Charge, CompanySettings, SystemRestorePoint, SectionType } from '../types';
 import { Sidebar } from './Sidebar';
 import { DashboardView } from './DashboardView';
@@ -74,17 +74,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           </div>
           <span className="font-bold text-sm tracking-tight text-white">MrGestor</span>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleManualSync}
-            disabled={isSyncing}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-200 active:scale-95 transition-all disabled:opacity-50 shadow-2xs"
-            title="Sincronizar dados com a nuvem agora"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="text-[11px] font-bold text-emerald-400">{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
-          </button>
-        </div>
       </header>
       {/* Sidebar / Nav */}
       <Sidebar 
@@ -93,9 +82,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           if (sec === 'clients') setClientStatusFilter('all');
           setActiveSection(sec);
         }} 
-        onSync={handleManualSync}
-        isSyncing={isSyncing}
-        syncError={syncError}
       />
       {/* Main Content Area */}
       <main className="flex-1 md:ml-64 p-3.5 sm:p-8 max-w-7xl w-full mx-auto pb-32 md:pb-12">

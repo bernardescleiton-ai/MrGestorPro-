@@ -147,7 +147,7 @@ export const SettingsDataSections: React.FC<{
           </div>
         </div>
       </div>
-      {/* 3. Sincronia na Nuvem & Backup de Dados */}
+      {/* 3. Backup de Dados Local */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-3">
@@ -156,24 +156,13 @@ export const SettingsDataSections: React.FC<{
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-                Sincronização na Nuvem e Backup de Dados
+                Backup e Gerenciamento dos Dados
               </h2>
               <p className="text-xs text-slate-500 font-mono">
-                Exporte, copie ou importe seus clientes e cobranças entre dispositivos ou links
+                Exporte, copie ou importe seus clientes e cobranças salvos no aparelho
               </p>
             </div>
           </div>
-          {onSync && (
-            <button
-              type="button"
-              onClick={onSync}
-              disabled={isSyncing}
-              className="px-3.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Sincronizando...' : 'Sincronizar Nuvem'}
-            </button>
-          )}
         </div>
         <div className="p-6 space-y-6">
           {/* Export Options */}

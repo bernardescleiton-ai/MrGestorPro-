@@ -4,28 +4,20 @@ import {
   Users,
   Calendar,
   Clock,
-  RefreshCw,
   User,
   Bell,
   Sliders,
-  Sparkles
 } from 'lucide-react';
 import { SectionType } from '../types';
 
 interface SidebarProps {
   activeSection: SectionType;
   onSelectSection: (section: SectionType) => void;
-  onSync?: () => void;
-  isSyncing?: boolean;
-  syncError?: string | null;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeSection,
   onSelectSection,
-  onSync,
-  isSyncing = false,
-  syncError = null,
 }) => {
   const mainNavItems: { id: SectionType; label: string; icon: React.ReactNode; badge?: string }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <Home className="w-4 h-4" /> },
@@ -121,56 +113,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </div>
         </nav>
-
-        {/* Sync Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-900/50">
-          <div className="flex justify-between text-[11px] text-slate-400 mb-2 font-mono">
-            <span>Sincronização Nuvem</span>
-            {syncError ? (
-              <span className="text-amber-400 font-bold flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                Local
-              </span>
-            ) : (
-              <span className="text-emerald-400 font-bold flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-                Tempo Real
-              </span>
-            )}
-          </div>
-
-          <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mb-2">
-            <div className={`h-full w-full ${syncError ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
-          </div>
-
-          <div className="mt-1 flex items-center justify-between">
-            <div
-              className="text-[10px] text-slate-400 font-mono tracking-tight truncate max-w-[130px]"
-              title={syncError || 'Nuvem conectada e sincronizada'}
-            >
-              {syncError ? '💾 Salvo no Dispositivo' : '⚡ Nuvem Sincronizada'}
-            </div>
-            {onSync && (
-              <button
-                type="button"
-                onClick={onSync}
-                disabled={isSyncing}
-                title="Sincronizar dados agora"
-                className="flex items-center gap-1 text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-2 py-1 rounded transition-all active:scale-95 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-blue-400' : ''}`} />
-                {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
-              </button>
-            )}
-          </div>
-          {syncError && (
-            <div className="mt-1.5 text-[9.5px] text-amber-400/90 leading-tight bg-amber-500/10 p-1.5 rounded border border-amber-500/20 font-sans">
-              {syncError.includes('Cota') || syncError.includes('Quota')
-                ? '⏳ Cota diária gratuita em pausa. Seus dados estão 100% salvos no dispositivo.'
-                : syncError}
-            </div>
-          )}
-        </div>
       </aside>
 
       {/* Mobile Bottom Navigation Bar with Tactile 3D App Tiles */}
