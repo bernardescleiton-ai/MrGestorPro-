@@ -75,7 +75,7 @@ export const useCloudSync = ({
           setRawData(merged);
           lastSavedDataJsonRef.current = JSON.stringify({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
           try { localStorage.setItem('gc_v1_data', JSON.stringify(merged)); } catch {}
-          setTimeout(() => { isRemoteUpdate.current = false; }, 100);
+          setTimeout(() => { isRemoteUpdate.current = false; }, 1000);
         } else if (!exists) {
           hasFetchedCloud.current = true;
           saveAppData(dataRef.current, 0).catch(() => {});
@@ -95,12 +95,19 @@ export const useCloudSync = ({
     try {
       // 1. Instant local persistence to device storage
       localStorage.setItem('gc_v1_data', JSON.stringify(data));
-      markHasPendingLocalChanges();
+
+      if (isRemoteUpdate.current) {
+        // Change originated from cloud remote snapshot, do not save back to Firestore
+        isRemoteUpdate.current = false;
+        return;
+      }
 
       if (!hasFetchedCloud.current) return;
       const currentJson = JSON.stringify({ clients: data.clients, charges: data.charges, settings: data.settings, sentLogs: data.sentLogs });
       if (currentJson !== lastSavedDataJsonRef.current) {
         lastSavedDataJsonRef.current = currentJson;
+        markHasPendingLocalChanges();
+
         // 2. Sync to Firebase
         flushPendingDeletionsToFirestore().catch(() => {});
         saveAppData(data).then(() => setSyncError(null)).catch((err) => {

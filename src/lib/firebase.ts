@@ -191,7 +191,15 @@ export function subscribeToAppData(
   })();
   let updatedAt = Date.now();
 
+  let clientsLoaded = false;
+  let chargesLoaded = false;
+  let logsLoaded = false;
+  let settingsLoaded = false;
+
   const emit = () => {
+    if (!clientsLoaded || !chargesLoaded || !logsLoaded || !settingsLoaded) {
+      return;
+    }
     onData(
       {
         clients,
@@ -227,6 +235,7 @@ export function subscribeToAppData(
       snapshot.forEach((d) => {
         clients.push({ id: d.id, ...d.data() } as Client);
       });
+      clientsLoaded = true;
       emit();
     },
     handleSnapshotError
@@ -239,6 +248,7 @@ export function subscribeToAppData(
       snapshot.forEach((d) => {
         charges.push({ id: d.id, ...d.data() } as Charge);
       });
+      chargesLoaded = true;
       emit();
     },
     handleSnapshotError
@@ -251,6 +261,7 @@ export function subscribeToAppData(
       snapshot.forEach((d) => {
         sentLogs.push({ id: d.id, ...d.data() } as SentMessageLog);
       });
+      logsLoaded = true;
       emit();
     },
     handleSnapshotError
@@ -266,6 +277,7 @@ export function subscribeToAppData(
           if (typeof raw.updatedAt === 'number') updatedAt = raw.updatedAt;
         }
       });
+      settingsLoaded = true;
       emit();
     },
     handleSnapshotError

@@ -190,117 +190,81 @@ export function subscribeToApiData(
 
 import { getPendingDeletions } from './offlineSyncManager';
 
+function isRecentRecord(record: any, maxAgeMs = 5 * 60 * 1000): boolean {
+  if (!record) return false;
+  const timeStr = record.createdAt || record.timestamp || record.paidAt;
+  if (!timeStr) return false;
+  const time = new Date(timeStr).getTime();
+  if (isNaN(time) || time <= 0) return false;
+  return Date.now() - time < maxAgeMs;
+}
+
+// Merge AppData: Cloud Firestore snapshot is authoritative for remote state.
+// Filter out local pending deletions and preserve recently created local offline records.
 export function mergeAppData(local: AppData, cloud: AppData): AppData {
   const pendingDeletions = getPendingDeletions();
   const deletedClientIds = new Set(pendingDeletions.clients);
   const deletedChargeIds = new Set(pendingDeletions.charges);
   const deletedLogIds = new Set(pendingDeletions.logs);
 
-  const localClients = Array.isArray(local?.clients) ? local.clients : [];
   const cloudClients = Array.isArray(cloud?.clients) ? cloud.clients : [];
-
-  const localCharges = Array.isArray(local?.charges) ? local.charges : [];
   const cloudCharges = Array.isArray(cloud?.charges) ? cloud.charges : [];
-
-  const localLogs = Array.isArray(local?.sentLogs) ? local.sentLogs : [];
   const cloudLogs = Array.isArray(cloud?.sentLogs) ? cloud.sentLogs : [];
 
-  // Smart merge clients: preserve local offline creations & updates, respect local deletions
-  const clientMap = new Map<string, import('../types').Client>();
-  for (const c of cloudClients) {
-    if (c?.id && !deletedClientIds.has(c.id)) {
-      clientMap.set(c.id, c);
-    }
-  }
-  for (const c of localClients) {
-    if (c?.id && !deletedClientIds.has(c.id)) {
-      if (!clientMap.has(c.id)) {
-        clientMap.set(c.id, c);
-      } else {
-        const existingCloud = clientMap.get(c.id)!;
-        clientMap.set(c.id, { ...existingCloud, ...c });
-      }
-    }
-  }
-  const mergedClients = Array.from(clientMap.values());
+  const localClients = Array.isArray(local?.clients) ? local.clients : [];
+  const localCharges = Array.isArray(local?.charges) ? local.charges : [];
+  const localLogs = Array.isArray(local?.sentLogs) ? local.sentLogs : [];
 
-  // Smart merge charges: preserve local offline creations & updates, respect local deletions
-  const chargeMap = new Map<string, import('../types').Charge>();
-  for (const ch of cloudCharges) {
-    if (ch?.id && !deletedChargeIds.has(ch.id)) {
-      chargeMap.set(ch.id, ch);
-    }
-  }
-  for (const ch of localCharges) {
-    if (ch?.id && !deletedChargeIds.has(ch.id)) {
-      if (!chargeMap.has(ch.id)) {
-        chargeMap.set(ch.id, ch);
-      } else {
-        const existingCloud = chargeMap.get(ch.id)!;
-        chargeMap.set(ch.id, { ...existingCloud, ...ch });
-      }
-    }
-  }
-  const mergedCharges = Array.from(chargeMap.values());
+  const cloudClientIds = new Set(cloudClients.map((c) => c?.id).filter(Boolean));
+  const cloudChargeIds = new Set(cloudCharges.map((ch) => ch?.id).filter(Boolean));
+  const cloudLogIds = new Set(cloudLogs.map((l) => l?.id).filter(Boolean));
 
-  // Smart merge sent logs
-  const logMap = new Map<string, import('../types').SentMessageLog>();
-  for (const l of cloudLogs) {
-    if (l?.id && !deletedLogIds.has(l.id)) {
-      logMap.set(l.id, l);
-    }
-  }
-  for (const l of localLogs) {
-    if (l?.id && !deletedLogIds.has(l.id)) {
-      if (!logMap.has(l.id)) {
-        logMap.set(l.id, l);
-      }
-    }
-  }
-  const mergedLogs = Array.from(logMap.values());
+  // 1. Clients: Cloud snapshot + newly created local offline clients
+  const finalClients = [
+    ...cloudClients.filter((c) => c?.id && !deletedClientIds.has(c.id)),
+    ...localClients.filter((c) => c?.id && !cloudClientIds.has(c.id) && !deletedClientIds.has(c.id) && isRecentRecord(c)),
+  ];
+
+  // 2. Charges: Cloud snapshot + newly created local offline charges
+  const finalCharges = [
+    ...cloudCharges.filter((ch) => ch?.id && !deletedChargeIds.has(ch.id)),
+    ...localCharges.filter((ch) => ch?.id && !cloudChargeIds.has(ch.id) && !deletedChargeIds.has(ch.id) && isRecentRecord(ch)),
+  ];
+
+  // 3. SentLogs: Cloud snapshot + newly created local offline logs
+  const finalLogs = [
+    ...cloudLogs.filter((l) => l?.id && !deletedLogIds.has(l.id)),
+    ...localLogs.filter((l) => l?.id && !cloudLogIds.has(l.id) && !deletedLogIds.has(l.id) && isRecentRecord(l)),
+  ];
 
   const localSettings: Partial<CompanySettings> = local?.settings || {};
   const cloudSettings: Partial<CompanySettings> = cloud?.settings || {};
 
   const localUpdated = typeof local?.updatedAt === 'number' ? local.updatedAt : 0;
   const cloudUpdated = typeof cloud?.updatedAt === 'number' ? cloud.updatedAt : 0;
-  const isLocalNewer = localUpdated >= cloudUpdated;
+  const isCloudNewerOrEqual = cloudUpdated >= localUpdated;
 
-  const baseSettings = isLocalNewer
-    ? { ...initialAppData.settings, ...cloudSettings, ...localSettings }
-    : { ...initialAppData.settings, ...localSettings, ...cloudSettings };
+  const baseSettings = isCloudNewerOrEqual
+    ? { ...initialAppData.settings, ...localSettings, ...cloudSettings }
+    : { ...initialAppData.settings, ...cloudSettings, ...localSettings };
 
   // Resilient resolution of whatsappMedia
   let chosenMedia: WhatsAppMediaAttachment | undefined;
   if (localSettings.whatsappMedia && cloudSettings.whatsappMedia) {
     const localMediaTime = new Date(localSettings.whatsappMedia.uploadedAt || 0).getTime();
     const cloudMediaTime = new Date(cloudSettings.whatsappMedia.uploadedAt || 0).getTime();
-    if (localMediaTime !== cloudMediaTime) {
-      chosenMedia = localMediaTime >= cloudMediaTime ? localSettings.whatsappMedia : cloudSettings.whatsappMedia;
-    } else {
-      chosenMedia = isLocalNewer ? localSettings.whatsappMedia : cloudSettings.whatsappMedia;
-    }
-  } else if (localSettings.whatsappMedia && !cloudSettings.whatsappMedia) {
-    const localMediaTime = new Date(localSettings.whatsappMedia.uploadedAt || 0).getTime();
-    const isRecentUpload = Date.now() - localMediaTime < 120000;
-    if (isLocalNewer || isRecentUpload || (cloudUpdated - localUpdated < 5000)) {
-      chosenMedia = localSettings.whatsappMedia;
-    } else {
-      chosenMedia = undefined;
-    }
-  } else if (!localSettings.whatsappMedia && cloudSettings.whatsappMedia) {
-    if (!isLocalNewer || (localUpdated - cloudUpdated < 5000)) {
-      chosenMedia = cloudSettings.whatsappMedia;
-    } else {
-      chosenMedia = undefined;
-    }
+    chosenMedia = cloudMediaTime >= localMediaTime ? cloudSettings.whatsappMedia : localSettings.whatsappMedia;
+  } else if (cloudSettings.whatsappMedia) {
+    chosenMedia = cloudSettings.whatsappMedia;
+  } else if (localSettings.whatsappMedia) {
+    chosenMedia = localSettings.whatsappMedia;
   }
 
   const mergedSettings: CompanySettings = {
     ...baseSettings,
-    whatsappMethod: isLocalNewer
-      ? (localSettings.whatsappMethod || cloudSettings.whatsappMethod || 'direct_app')
-      : (cloudSettings.whatsappMethod || localSettings.whatsappMethod || 'direct_app'),
+    whatsappMethod: isCloudNewerOrEqual
+      ? (cloudSettings.whatsappMethod || localSettings.whatsappMethod || 'direct_app')
+      : (localSettings.whatsappMethod || cloudSettings.whatsappMethod || 'direct_app'),
     whatsappMedia: chosenMedia || undefined,
   };
 
@@ -309,10 +273,10 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
   }
 
   return {
-    clients: mergedClients,
-    charges: mergedCharges,
+    clients: finalClients,
+    charges: finalCharges,
     settings: mergedSettings,
-    sentLogs: mergedLogs,
+    sentLogs: finalLogs,
     updatedAt: Math.max(cloudUpdated, localUpdated),
   };
 }
