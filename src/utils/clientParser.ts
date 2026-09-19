@@ -12,12 +12,12 @@ export function isExplicitDateString(str: string): boolean {
   const s = str.trim();
 
   // Pure date formats: 06/08/2026, 06-08-2026, 2026-08-06, 06/08, 06-08, 06/08/26
-  if (/^([0-3]?\d[\/\.-][0-1]?\d([\/\.-]\d{2,4})?|\d{4}[\/\.-][0-1]?\d[\/\.-][0-3]?\d)$/.test(s)) {
+  if (/^([0-3]?\d[./-][0-1]?\d([./-]\d{2,4})?|\d{4}[./-][0-1]?\d[./-][0-3]?\d)$/.test(s)) {
     return true;
   }
 
   // Date with time or timestamp: "06/08/2026 14:30", "2026-08-06T14:30", "13/08 13h26", "20/08/2026 19h48"
-  if (/^([0-3]?\d[\/\.-][0-1]?\d([\/\.-]\d{2,4})?|\d{4}[\/\.-][0-1]?\d[\/\.-][0-3]?\d)\s*([T\s]?([01]?\d|2[0-3])[:hH]([0-5]\d))?$/i.test(s)) {
+  if (/^([0-3]?\d[./-][0-1]?\d([./-]\d{2,4})?|\d{4}[./-][0-1]?\d[./-][0-3]?\d)\s*([T\s]?([01]?\d|2[0-3])[:hH]([0-5]\d))?$/i.test(s)) {
     return true;
   }
 
@@ -110,9 +110,9 @@ export function cleanClientName(rawName: string): string {
   let cleaned = rawName.trim();
 
   // 1. Remove full or partial date strings
-  cleaned = cleaned.replace(/\b[0-3]?\d[\/\.-][0-1]?\d[\/\.-]\d{2,4}\b/g, '');
-  cleaned = cleaned.replace(/\b\d{4}[\/\.-][0-1]?\d[\/\.-][0-3]?\d\b/g, '');
-  cleaned = cleaned.replace(/\b[0-3]?\d[\/\.-][0-1]?\d\b/g, '');
+  cleaned = cleaned.replace(/\b[0-3]?\d[./-][0-1]?\d[./-]\d{2,4}\b/g, '');
+  cleaned = cleaned.replace(/\b\d{4}[./-][0-1]?\d[./-][0-3]?\d\b/g, '');
+  cleaned = cleaned.replace(/\b[0-3]?\d[./-][0-1]?\d\b/g, '');
   cleaned = cleaned.replace(/\b([01]?\d|2[0-3])[:hH]([0-5]\d)\b/g, '');
 
   // 2. Remove phone numbers if attached at end of name line
@@ -127,7 +127,7 @@ export function cleanClientName(rawName: string): string {
   cleaned = cleaned.replace(/^(whatsapp|whats|wpp|telefone|tel|celular|cel|fone|phone|mobile)\s*[:=-]\s*/i, '');
 
   // 4. Strip leading/trailing separators and spaces (preserve leading numbers & letters)
-  cleaned = cleaned.replace(/^[\s\-\|,:]+|[\s\-\|,:]+$/g, '').trim();
+  cleaned = cleaned.replace(/^[\s\-|,:]+|[\s\-|,:]+$/g, '').trim();
 
   return cleaned;
 }
@@ -143,7 +143,7 @@ export function parseDateAndTimeString(text: string): string {
   }
 
   // 1. Brazilian date with year (06/08/2026 or 06/08/26)
-  const brDateMatch = text.match(/\b([0-3]?\d)[\/\.-]([0-1]?\d)[\/\.-](\d{2,4})\b/);
+  const brDateMatch = text.match(/\b([0-3]?\d)[./-]([0-1]?\d)[./-](\d{2,4})\b/);
   if (brDateMatch) {
     const day = brDateMatch[1].padStart(2, '0');
     const month = brDateMatch[2].padStart(2, '0');
@@ -153,7 +153,7 @@ export function parseDateAndTimeString(text: string): string {
   }
 
   // 2. ISO date (2026-08-06)
-  const isoDateMatch = text.match(/\b(\d{4})[\/\.-]([0-1]?\d)[\/\.-]([0-3]?\d)\b/);
+  const isoDateMatch = text.match(/\b(\d{4})[./-]([0-1]?\d)[./-]([0-3]?\d)\b/);
   if (isoDateMatch) {
     const year = isoDateMatch[1];
     const month = isoDateMatch[2].padStart(2, '0');
@@ -162,7 +162,7 @@ export function parseDateAndTimeString(text: string): string {
   }
 
   // 3. Day / Month without year (06/08 or 06-08)
-  const dayMonthMatch = text.match(/\b([0-3]?\d)[\/\.-]([0-1]?\d)\b/);
+  const dayMonthMatch = text.match(/\b([0-3]?\d)[./-]([0-1]?\d)\b/);
   if (dayMonthMatch) {
     const dayNum = parseInt(dayMonthMatch[1], 10);
     const monthNum = parseInt(dayMonthMatch[2], 10);
@@ -275,152 +275,7 @@ export function parseClientText(rawText: string) {
   return { name, phone, dueDate, notes };
 }
 
-export function parseBulkClients(rawText: string): ParsedBulkClient[] {
-  if (!rawText || !rawText.trim()) return [];
-
-  const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
-  const clientEntries: ParsedBulkClient[] = [];
-
-  let i = 0;
-  while (i < lines.length) {
-    const l1 = lines[i];
-    const l2 = lines[i + 1] || '';
-    const l3 = lines[i + 2] || '';
-
-    const l1Date = isDateString(l1);
-    const l2Date = isDateString(l2);
-    const l3Date = isDateString(l3);
-
-    const l1Phone = isPhoneNumber(l1);
-    const l2Phone = isPhoneNumber(l2);
-    const l3Phone = isPhoneNumber(l3);
-
-    const l1Name = !l1Date && !l1Phone;
-    const l2Name = l2 ? !l2Date && !l2Phone : false;
-    const l3Name = l3 ? !l3Date && !l3Phone : false;
-
-    // --- CASE 1: 3-line block with 1 Name, 1 Date, 1 Phone (in ANY order among l1, l2, l3) ---
-    const window3 = [
-      { text: l1, isDate: l1Date, isPhone: l1Phone, isName: l1Name },
-      { text: l2, isDate: l2Date, isPhone: l2Phone, isName: l2Name },
-      { text: l3, isDate: l3Date, isPhone: l3Phone, isName: l3Name },
-    ];
-
-    const datesIn3 = window3.filter((x) => x.isDate);
-    const phonesIn3 = window3.filter((x) => x.isPhone);
-    const namesIn3 = window3.filter((x) => x.isName);
-
-    if (namesIn3.length === 1 && datesIn3.length === 1 && phonesIn3.length === 1) {
-      const rawNameStr = namesIn3[0].text;
-      const finalName = cleanClientName(rawNameStr);
-      const dueDate = parseDateAndTimeString(datesIn3[0].text);
-      const phone = extractPhoneNumber(phonesIn3[0].text);
-
-      if (finalName && !isDateString(finalName) && !isPhoneNumber(finalName)) {
-        clientEntries.push({
-          name: finalName,
-          phone: phone,
-          dueDate: dueDate,
-          notes: '',
-        });
-      }
-      i += 3;
-      continue;
-    }
-
-    // --- CASE 2: 2-line block with (Name and Date) OR (Name and Phone) ---
-    if (l2) {
-      // 2a: l1 is Name, l2 is Date
-      if (l1Name && l2Date) {
-        const finalName = cleanClientName(l1);
-        const dueDate = parseDateAndTimeString(l2);
-        const phone = extractPhoneNumber(l1);
-
-        if (finalName && !isDateString(finalName) && !isPhoneNumber(finalName)) {
-          clientEntries.push({
-            name: finalName,
-            phone: phone,
-            dueDate: dueDate,
-            notes: '',
-          });
-        }
-        i += 2;
-        continue;
-      }
-
-      // 2b: l1 is Date, l2 is Name
-      if (l1Date && l2Name) {
-        const finalName = cleanClientName(l2);
-        const dueDate = parseDateAndTimeString(l1);
-        const phone = extractPhoneNumber(l2);
-
-        if (finalName && !isDateString(finalName) && !isPhoneNumber(finalName)) {
-          clientEntries.push({
-            name: finalName,
-            phone: phone,
-            dueDate: dueDate,
-            notes: '',
-          });
-        }
-        i += 2;
-        continue;
-      }
-
-      // 2c: l1 is Name, l2 is Phone
-      if (l1Name && l2Phone) {
-        const finalName = cleanClientName(l1);
-        const phone = extractPhoneNumber(l2);
-
-        if (finalName && !isDateString(finalName) && !isPhoneNumber(finalName)) {
-          clientEntries.push({
-            name: finalName,
-            phone: phone,
-            dueDate: '',
-            notes: '',
-          });
-        }
-        i += 2;
-        continue;
-      }
-
-      // 2d: l1 is Phone, l2 is Name
-      if (l1Phone && l2Name) {
-        const finalName = cleanClientName(l2);
-        const phone = extractPhoneNumber(l1);
-
-        if (finalName && !isDateString(finalName) && !isPhoneNumber(finalName)) {
-          clientEntries.push({
-            name: finalName,
-            phone: phone,
-            dueDate: '',
-            notes: '',
-          });
-        }
-        i += 2;
-        continue;
-      }
-    }
-
-    // --- CASE 3: Single line containing Name, or Name + Date + Phone combined ---
-    if (!l1Date && !l1Phone) {
-      const parsed = parseClientText(l1);
-      const finalName = cleanClientName(parsed.name || l1);
-
-      if (finalName && !isDateString(finalName) && !isPhoneNumber(finalName)) {
-        clientEntries.push({
-          name: finalName,
-          phone: parsed.phone || '',
-          dueDate: parsed.dueDate || '',
-          notes: parsed.notes || '',
-        });
-      }
-    }
-
-    i += 1;
-  }
-
-  return clientEntries;
-}
+export { parseBulkClients } from './bulkClientParser';
 
 export function isDuplicateClientName(
   candidateName: string,

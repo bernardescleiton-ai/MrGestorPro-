@@ -2,6 +2,7 @@ import type { WhatsAppMediaAttachment } from '../types';
 import { saveMediaToIDB, deleteMediaFromIDB } from './indexedDBMedia';
 import { getApps } from 'firebase/app';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { logger } from './logger';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_VIDEO_BYTES = 16 * 1024 * 1024; // 16 MB
@@ -131,7 +132,7 @@ export async function uploadWhatsAppMedia(file: File, id: string): Promise<Whats
   try {
     await saveMediaToIDB(id, processedBlob);
   } catch (e) {
-    console.warn('Could not save to IDB:', e);
+    logger.warn('Could not save to IDB:', e);
   }
 
   // 2. Upload to Firebase Storage with strict timeout

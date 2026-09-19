@@ -82,11 +82,26 @@ export const calculateRenewalDueDate = (currentDueDate: string | undefined, mont
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-export const getDefaultMessage = (client: Client, charge: Charge | null | undefined, settings: CompanySettings): string => {
-  const defaultTemplate = 'Olá, {nome}! Tudo bem?\n\nPassando para lembrar que seu vencimento está agendado para o dia *{vencimento}*.{nota}';
-  const template = settings?.messageTemplate && settings.messageTemplate.trim()
-    ? settings.messageTemplate 
-    : defaultTemplate;
+export const getDefaultMessage = (
+  client: Client,
+  charge: Charge | null | undefined,
+  settings: CompanySettings,
+  templateTypeOverride?: 'standard' | 'overdue_5_days'
+): string => {
+  const dateToEvaluate = charge?.dueDate || client?.dueDate?.split('T')[0];
+  const daysDiff = getDaysUntilDue(dateToEvaluate);
+  const isOverdue5Days = templateTypeOverride === 'overdue_5_days' || (templateTypeOverride !== 'standard' && daysDiff !== null && daysDiff <= -5);
+
+  let template = '';
+  if (isOverdue5Days && settings?.overdue5DaysMessageTemplate && settings.overdue5DaysMessageTemplate.trim()) {
+    template = settings.overdue5DaysMessageTemplate;
+  } else if (isOverdue5Days && (!settings?.messageTemplate || !settings.messageTemplate.trim())) {
+    template = 'Olá, {nome}! Notamos que seu vencimento do dia *{vencimento}* está pendente há mais de 5 dias.\n\nPedimos por gentileza que regularize sua pendência para evitarmos o cancelamento do serviço.{nota}\n\nChave PIX: {pix}';
+  } else if (settings?.messageTemplate && settings.messageTemplate.trim()) {
+    template = settings.messageTemplate;
+  } else {
+    template = 'Olá, {nome}! Tudo bem?\n\nPassando para lembrar que seu vencimento está agendado para o dia *{vencimento}*.{nota}';
+  }
 
   const dueStr = charge ? (charge.dueTime ? `${dateBR(charge.dueDate)} às ${charge.dueTime}` : dateBR(charge.dueDate)) : (client.dueDate ? formatDateTimeBR(client.dueDate) : 'a definir');
   const noteText = charge?.note ? `\nObservação: ${charge.note}` : '';

@@ -64,6 +64,7 @@ export interface CompanySettings {
   messageTemplate?: string; // Template da mensagem de cobrança padrão
   renewalMessageTemplate?: string; // Template da mensagem de renovação
   reminderMessageTemplate?: string; // Template da mensagem de lembrete preventivo
+  overdue5DaysMessageTemplate?: string; // Template da mensagem exclusiva para mais de 5 dias de vencimento
   enableRenewalWhatsAppMessage?: boolean; // Liga/Desliga geral para mensagem de renovação
   whatsappMethod?: 'direct_app' | 'web' | 'wame'; // Método de abertura do WhatsApp (App direto, Web, ou wa.me)
   whatsappMedia?: WhatsAppMediaAttachment; // Mídia padrão anexada aos próximos envios de WhatsApp

@@ -4,7 +4,17 @@ import { useState } from 'react';
 import { uploadWhatsAppMedia, deleteWhatsAppMedia } from '../lib/whatsappMedia';
 import { MediaPreview } from './MediaPreview';
 import type { CompanySettings } from '../types';
-export const MessageTemplatesSection: React.FC<{ formData: CompanySettings; setFormData: React.Dispatch<React.SetStateAction<CompanySettings>>; activeTemplateTab: 'standard' | 'renewal' | 'reminder'; setActiveTemplateTab: (tab: 'standard' | 'renewal' | 'reminder') => void; onInsertTag: (tag: string, targetField: 'messageTemplate' | 'renewalMessageTemplate' | 'reminderMessageTemplate') => void; onTestAutomatedSend: () => void; getPreviewText: () => string; onSubmit: (e: React.FormEvent) => void; onSaveSettings: (settings: CompanySettings) => void; }> = ({ formData, setFormData, activeTemplateTab, setActiveTemplateTab, onInsertTag, onTestAutomatedSend, getPreviewText, onSubmit, onSaveSettings }) => {
+export const MessageTemplatesSection: React.FC<{
+  formData: CompanySettings;
+  setFormData: React.Dispatch<React.SetStateAction<CompanySettings>>;
+  activeTemplateTab: 'standard' | 'renewal' | 'overdue5';
+  setActiveTemplateTab: (tab: 'standard' | 'renewal' | 'overdue5') => void;
+  onInsertTag: (tag: string, targetField: 'messageTemplate' | 'renewalMessageTemplate' | 'reminderMessageTemplate' | 'overdue5DaysMessageTemplate') => void;
+  onTestAutomatedSend: () => void;
+  getPreviewText: () => string;
+  onSubmit: (e: React.FormEvent) => void;
+  onSaveSettings: (settings: CompanySettings) => void;
+}> = ({ formData, setFormData, activeTemplateTab, setActiveTemplateTab, onInsertTag, onTestAutomatedSend, getPreviewText, onSubmit, onSaveSettings }) => {
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState('');
 
@@ -82,14 +92,14 @@ export const MessageTemplatesSection: React.FC<{ formData: CompanySettings; setF
             </button>
             <button
               type="button"
-              onClick={() => setActiveTemplateTab('reminder')}
+              onClick={() => setActiveTemplateTab('overdue5')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                activeTemplateTab === 'reminder'
-                  ? 'bg-amber-600 text-white shadow-sm'
+                activeTemplateTab === 'overdue5'
+                  ? 'bg-rose-600 text-white shadow-sm'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              3. Lembrete Preventivo (3 Dias Antes)
+              3. Cobrança Exclusiva (+5 Dias Vencidos)
             </button>
           </div>
           {/* Active Template Form Section */}
@@ -234,31 +244,38 @@ export const MessageTemplatesSection: React.FC<{ formData: CompanySettings; setF
               />
             </div>
           )}
-          {activeTemplateTab === 'reminder' && (
+          {activeTemplateTab === 'overdue5' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Texto de Lembrete Preventivo (3 Dias Antes)
+                  Texto Exclusivo para Clientes com +5 Dias de Vencimento (Atraso)
                 </label>
-                {formData.reminderMessageTemplate && (
+                {formData.overdue5DaysMessageTemplate && (
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, reminderMessageTemplate: '' })}
+                    onClick={() => {
+                      const updated = { ...formData, overdue5DaysMessageTemplate: '' };
+                      setFormData(updated);
+                      onSaveSettings(updated);
+                    }}
                     className="text-[11px] text-rose-600 hover:text-rose-800 font-bold flex items-center gap-1"
                   >
-                    <XCircle className="w-3.5 h-3.5" /> Deixar em Branco
+                    <XCircle className="w-3.5 h-3.5" /> Deixar em Branco (Usar Padrão)
                   </button>
                 )}
               </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Esta mensagem exclusiva é utilizada automaticamente ao enviar cobrança via WhatsApp para qualquer cliente que esteja com 5 ou mais dias de atraso.
+              </p>
               {/* Tag Insertion Buttons */}
               <div className="flex flex-wrap items-center gap-1.5 p-2 bg-slate-50 rounded-xl border border-slate-200">
                 <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1">Inserir Tags:</span>
-                {['{nome}', '{vencimento}', '{valor}', '{empresa}'].map((t) => (
+                {['{nome}', '{vencimento}', '{valor}', '{empresa}', '{pix}'].map((t) => (
                   <button
                     key={t}
                     type="button"
-                    onClick={() => onInsertTag(t, 'reminderMessageTemplate')}
-                    className="px-2 py-1 bg-white hover:bg-amber-50 hover:text-amber-700 text-slate-700 rounded-lg text-[11px] font-mono font-bold border border-slate-200 shadow-2xs transition-colors"
+                    onClick={() => onInsertTag(t, 'overdue5DaysMessageTemplate')}
+                    className="px-2 py-1 bg-white hover:bg-rose-50 hover:text-rose-700 text-slate-700 rounded-lg text-[11px] font-mono font-bold border border-slate-200 shadow-2xs transition-colors"
                   >
                     +{t}
                   </button>
@@ -266,10 +283,13 @@ export const MessageTemplatesSection: React.FC<{ formData: CompanySettings; setF
               </div>
               <textarea
                 rows={5}
-                value={formData.reminderMessageTemplate ?? ''}
-                onChange={(e) => setFormData({ ...formData, reminderMessageTemplate: e.target.value })}
-                placeholder="Ex: Olá {nome}, estamos passando para lembrar que sua fatura vence em {vencimento}. Qualquer dúvida estamos à disposição!"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-800 focus:ring-2 focus:ring-amber-500 focus:bg-white outline-none leading-relaxed font-mono"
+                value={formData.overdue5DaysMessageTemplate ?? ''}
+                onChange={(e) => {
+                  const updated = { ...formData, overdue5DaysMessageTemplate: e.target.value };
+                  setFormData(updated);
+                }}
+                placeholder="Ex: Olá {nome}! Notamos que seu vencimento do dia {vencimento} está pendente há mais de 5 dias. Pedimos a gentileza de regularizar para evitar cancelamento. Chave PIX: {pix}. Atenciosamente, {empresa}."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-800 focus:ring-2 focus:ring-rose-500 focus:bg-white outline-none leading-relaxed font-mono"
               />
             </div>
           )}

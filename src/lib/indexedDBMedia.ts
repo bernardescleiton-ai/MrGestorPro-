@@ -1,5 +1,3 @@
-import type { WhatsAppMediaAttachment } from '../types';
-
 const DB_NAME = 'WhatsAppMediaDB';
 const STORE_NAME = 'mediaStore';
 

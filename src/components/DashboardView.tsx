@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Calendar, AlertTriangle, Clock, AlertCircle, Layers, ChevronRight, Zap, ShieldCheck } from 'lucide-react';
+import { Users, Calendar, AlertTriangle, AlertCircle, Layers, ChevronRight, ShieldCheck } from 'lucide-react';
 import { AppData, SectionType, Client, Charge } from '../types';
 import { getDaysUntilDue, isClientActive } from '../utils/formatters';
 import { DueTabFilter } from './DueView';
@@ -53,12 +53,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Due today count (0 days)
   const dueTodayCount = allPendingCharges.filter((c) => getItemDaysDiff(c) === 0).length;
 
-  // Due in 1 to 3 days (Faltando 3 dias)
-  const dueIn3DaysCount = allPendingCharges.filter((c) => {
-    const diff = getItemDaysDiff(c);
-    return diff !== null && diff >= 1 && diff <= 3;
-  }).length;
-
   // Due with 1 day late (1 dia de atraso)
   const dueLate1DayCount = allPendingCharges.filter((c) => getItemDaysDiff(c) === -1).length;
 
@@ -66,6 +60,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const overdueCount = allPendingCharges.filter((c) => {
     const diff = getItemDaysDiff(c);
     return diff !== null && diff < 0;
+  }).length;
+
+  // Overdue > 5 days count (+5 dias de atraso)
+  const overdue5DaysCount = allPendingCharges.filter((c) => {
+    const diff = getItemDaysDiff(c);
+    return diff !== null && diff <= -5;
   }).length;
 
   const totalPendingCount = allPendingCharges.length;
@@ -172,40 +172,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </button>
 
-        {/* 3. Faltam 3 Dias */}
-        <button
-          type="button"
-          onClick={() => onNavigate('due', 'in_3_days')}
-          className="group relative flex flex-col justify-between p-3.5 sm:p-5 rounded-2xl bg-gradient-to-b from-white via-indigo-50/30 to-indigo-100/40 text-left transition-all duration-150 border-t-2 border-t-white border-x border-indigo-200/90 border-b-0 shadow-[0_6px_0_0_#c7d2fe,0_10px_20px_-3px_rgba(99,102,241,0.15)] hover:shadow-[0_8px_0_0_#818cf8,0_14px_24px_-4px_rgba(99,102,241,0.25)] hover:-translate-y-0.5 active:translate-y-1.5 active:shadow-[0_1px_0_0_#818cf8,0_3px_6px_rgba(0,0,0,0.1)] overflow-hidden"
-        >
-          {/* Cyber Accent Line */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 to-purple-400" />
-
-          <div className="flex items-center justify-between w-full mb-3">
-            <div className="p-2 sm:p-2.5 rounded-xl bg-indigo-600 text-white shadow-[0_3px_0_0_#4338ca,0_4px_8px_rgba(79,70,229,0.35)] transition-transform group-hover:scale-105">
-              <Clock className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold font-mono uppercase tracking-wider bg-indigo-100 text-indigo-700 border border-indigo-200">
-              3 Dias
-            </span>
-          </div>
-
-          <div>
-            <div className="text-[11px] sm:text-xs font-bold text-indigo-800 uppercase tracking-wider mb-0.5 truncate">
-              Faltam 3 Dias
-            </div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-2xl sm:text-3xl font-black font-mono text-indigo-600 tracking-tight">
-                {dueIn3DaysCount}
-              </span>
-              <span className="text-[11px] font-bold text-indigo-600 flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
-                Acessar <ChevronRight className="w-3.5 h-3.5" />
-              </span>
-            </div>
-          </div>
-        </button>
-
-        {/* 4. 1 Dia de Atraso */}
+        {/* 3. 1 Dia de Atraso */}
         <button
           type="button"
           onClick={() => onNavigate('due', 'late_1_day')}
@@ -232,6 +199,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {dueLate1DayCount}
               </span>
               <span className="text-[11px] font-bold text-rose-600 flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
+                Acessar <ChevronRight className="w-3.5 h-3.5" />
+              </span>
+            </div>
+          </div>
+        </button>
+
+        {/* 4. +5 Dias Vencidos (Exclusivo) */}
+        <button
+          type="button"
+          onClick={() => onNavigate('due', 'overdue_5_days')}
+          className="group relative flex flex-col justify-between p-3.5 sm:p-5 rounded-2xl bg-gradient-to-b from-white via-purple-50/30 to-purple-100/40 text-left transition-all duration-150 border-t-2 border-t-white border-x border-purple-200/90 border-b-0 shadow-[0_6px_0_0_#e9d5ff,0_10px_20px_-3px_rgba(168,85,247,0.15)] hover:shadow-[0_8px_0_0_#c084fc,0_14px_24px_-4px_rgba(168,85,247,0.25)] hover:-translate-y-0.5 active:translate-y-1.5 active:shadow-[0_1px_0_0_#c084fc,0_3px_6px_rgba(0,0,0,0.1)] overflow-hidden"
+        >
+          {/* Cyber Accent Line */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-600 to-indigo-600" />
+
+          <div className="flex items-center justify-between w-full mb-3">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-purple-700 text-white shadow-[0_3px_0_0_#6b21a8,0_4px_8px_rgba(147,51,234,0.35)] transition-transform group-hover:scale-105">
+              <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+            <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold font-mono uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">
+              &gt; 5 Dias
+            </span>
+          </div>
+
+          <div>
+            <div className="text-[11px] sm:text-xs font-bold text-purple-800 uppercase tracking-wider mb-0.5 truncate">
+              +5 Dias Vencidos
+            </div>
+            <div className="flex items-baseline justify-between">
+              <span className="text-2xl sm:text-3xl font-black font-mono text-purple-700 tracking-tight">
+                {overdue5DaysCount}
+              </span>
+              <span className="text-[11px] font-bold text-purple-700 flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
                 Acessar <ChevronRight className="w-3.5 h-3.5" />
               </span>
             </div>

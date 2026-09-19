@@ -67,7 +67,7 @@ export function initBackgroundStability(): void {
     resumeListeners.forEach((cb) => {
       try {
         cb();
-      } catch (e) {
+      } catch {
         // silent
       }
     });
@@ -84,7 +84,7 @@ export function initBackgroundStability(): void {
       resumeListeners.forEach((cb) => {
         try {
           cb();
-        } catch (e) {
+        } catch {
           // silent
         }
       });

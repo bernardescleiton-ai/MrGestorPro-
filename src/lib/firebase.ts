@@ -537,7 +537,7 @@ export async function saveRestorePointToFirestore(point: SystemRestorePoint): Pr
   if (isQuotaExhausted || !point || !point.id) return;
   try {
     const pointRef = doc(db, 'restore_points', point.id);
-    const { id, ...rest } = point;
+    const { id: _id, ...rest } = point;
     await setDoc(pointRef, sanitizeDataForFirestore(rest), { merge: true });
   } catch (err: any) {
     const errorMsg = String(err?.message || err);

@@ -12,7 +12,7 @@ interface NoticesConfigViewProps {
 export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, onSaveSettings }) => {
   const [formData, setFormData] = useState<CompanySettings>(settings);
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [activeTemplateTab, setActiveTemplateTab] = useState<'standard' | 'renewal' | 'reminder'>('standard');
+  const [activeTemplateTab, setActiveTemplateTab] = useState<'standard' | 'renewal' | 'overdue5'>('standard');
   useEffect(() => {
     const activeEl = document.activeElement;
     const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
@@ -43,7 +43,7 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
     setFormData(updated);
     onSaveSettings(updated);
   };
-  const handleInsertTag = (tag: string, targetField: 'messageTemplate' | 'renewalMessageTemplate' | 'reminderMessageTemplate') => {
+  const handleInsertTag = (tag: string, targetField: 'messageTemplate' | 'renewalMessageTemplate' | 'reminderMessageTemplate' | 'overdue5DaysMessageTemplate') => {
     const currentVal = formData[targetField] || '';
     const updatedVal = currentVal ? `${currentVal} ${tag}` : tag;
     const updated = {
@@ -80,7 +80,7 @@ export const NoticesConfigView: React.FC<NoticesConfigViewProps> = ({ settings, 
     } else if (activeTemplateTab === 'renewal') {
       rawText = formData.renewalMessageTemplate || 'Olá {nome}, seu acesso foi renovado com sucesso! Seu novo vencimento é {vencimento}. Agradecemos a preferência!';
     } else {
-      rawText = formData.reminderMessageTemplate || 'Olá {nome}, lembrete amigável: seu vencimento vence em breve em {vencimento}.';
+      rawText = formData.overdue5DaysMessageTemplate || 'Olá {nome}! Notamos que seu vencimento do dia {vencimento} está pendente há mais de 5 dias. Pedimos por gentileza que regularize sua pendência para evitarmos o cancelamento do serviço. Chave PIX: {pix}. Atenciosamente, {empresa}.';
     }
     return rawText
       .replace(/{nome}/gi, 'Carlos Silva')

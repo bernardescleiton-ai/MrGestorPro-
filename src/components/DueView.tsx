@@ -3,7 +3,7 @@ import { Bell, RefreshCw, Calendar, Clock, AlertTriangle, AlertCircle, Search, C
 import { Client, Charge, CompanySettings } from '../types';
 import { dateBR, formatDateTimeBR, getChargeStatus, getDaysUntilDue, getClientStatusBadge, openWhatsApp } from '../utils/formatters';
 
-export type DueTabFilter = 'today' | 'in_3_days' | 'late_1_day' | 'all_late' | 'all';
+export type DueTabFilter = 'today' | 'in_3_days' | 'late_1_day' | 'overdue_5_days' | 'all_late' | 'all';
 
 interface DueViewProps {
   clients: Client[];
@@ -112,6 +112,13 @@ export const DueView: React.FC<DueViewProps> = ({
     return allPendingItems.filter((ch) => getItemDaysDiff(ch) === -1).length;
   }, [allPendingItems, clientMap]);
 
+  const overdue5DaysCount = useMemo(() => {
+    return allPendingItems.filter((ch) => {
+      const diff = getItemDaysDiff(ch);
+      return diff !== null && diff <= -5;
+    }).length;
+  }, [allPendingItems, clientMap]);
+
   const allLateCount = useMemo(() => {
     return allPendingItems.filter((ch) => {
       const diff = getItemDaysDiff(ch);
@@ -133,6 +140,9 @@ export const DueView: React.FC<DueViewProps> = ({
       }
       if (activeTab === 'late_1_day') {
         return diff === -1;
+      }
+      if (activeTab === 'overdue_5_days') {
+        return diff !== null && diff <= -5;
       }
       if (activeTab === 'all_late') {
         return diff !== null && diff < 0;
@@ -214,6 +224,13 @@ export const DueView: React.FC<DueViewProps> = ({
           badgeColor: 'bg-rose-100 text-rose-800 border-rose-300',
           count: late1DayCount,
         };
+      case 'overdue_5_days':
+        return {
+          title: 'Vencidos com Mais de 5 Dias',
+          desc: 'Clientes com pagamento ou plano vencido há mais de 5 dias. Envio da mensagem exclusiva de cobrança e regularização.',
+          badgeColor: 'bg-purple-100 text-purple-800 border-purple-300',
+          count: overdue5DaysCount,
+        };
       case 'all_late':
         return {
           title: 'Todos os Atrasados',
@@ -247,7 +264,7 @@ export const DueView: React.FC<DueViewProps> = ({
       </div>
 
       {/* Immediate Access Category Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
         {/* Vencem Hoje */}
         <button
           type="button"
@@ -328,6 +345,34 @@ export const DueView: React.FC<DueViewProps> = ({
               activeTab === 'late_1_day' ? 'bg-white text-rose-700' : 'bg-rose-100 text-rose-800'
             }`}>
               {late1DayCount}
+            </span>
+          </div>
+        </button>
+
+        {/* +5 Dias Vencidos (Exclusivo) */}
+        <button
+          type="button"
+          onClick={() => handleTabChange('overdue_5_days')}
+          className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+            activeTab === 'overdue_5_days'
+              ? 'bg-purple-700 text-white border-purple-800 shadow-md ring-2 ring-purple-500/30'
+              : 'bg-white text-slate-700 border-slate-200/80 hover:border-purple-300 hover:bg-purple-50/30 shadow-2xs'
+          }`}
+        >
+          <div className="flex items-center justify-between w-full mb-1">
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'overdue_5_days' ? 'text-purple-200' : 'text-slate-500'}`}>
+              &gt; 5 Dias
+            </span>
+            <div className={`p-1.5 rounded-lg ${activeTab === 'overdue_5_days' ? 'bg-purple-800 text-white' : 'bg-purple-50 text-purple-700'}`}>
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between w-full mt-1">
+            <span className="text-xs sm:text-sm font-bold truncate">+5 Dias Vencidos</span>
+            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${
+              activeTab === 'overdue_5_days' ? 'bg-white text-purple-800' : 'bg-purple-100 text-purple-800'
+            }`}>
+              {overdue5DaysCount}
             </span>
           </div>
         </button>
