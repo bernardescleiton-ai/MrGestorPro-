@@ -30,6 +30,7 @@ import {
   isDateString,
   parseDateAndTimeString,
   addOffsetToCurrentDate,
+  formatForDateTimeInput,
 } from '../utils/clientParser';
 import { formatDateTimeBR } from '../utils/formatters';
 
@@ -105,7 +106,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       setMode('single');
       setName(clientToEdit.name || '');
       setPhone(clientToEdit.phone || '');
-      setDueDate(clientToEdit.dueDate || '');
+      setDueDate(formatForDateTimeInput(clientToEdit.dueDate));
       setNotes(clientToEdit.notes || '');
     } else {
       setMode('single');
@@ -132,7 +133,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
     const parsed = parseClientText(pasteInput);
     if (parsed.name) setName(parsed.name);
     if (parsed.phone) setPhone(parsed.phone);
-    if (parsed.dueDate) setDueDate(parsed.dueDate);
+    if (parsed.dueDate) setDueDate(formatForDateTimeInput(parsed.dueDate));
     if (parsed.notes) setNotes(parsed.notes);
 
     const filledCount = [parsed.name, parsed.phone, parsed.dueDate, parsed.notes].filter(Boolean).length;
@@ -175,14 +176,14 @@ export const ClientModal: React.FC<ClientModalProps> = ({
         const mergedDueDate = item.dueDate || prevItem.dueDate;
         const mergedNotes = item.notes || prevItem.notes;
 
-        const dup = isDuplicateClientName(prevItem.name, safeClients);
+        const dup = isDuplicateClientName(prevItem.name, safeClients, undefined, mergedPhone);
         const isExisting = Boolean(dup);
         const phoneChanged = Boolean(isExisting && dup && mergedPhone && mergedPhone.trim() !== (dup.phone || '').trim());
         const dueDateChanged = Boolean(isExisting && dup && mergedDueDate && mergedDueDate.trim() !== (dup.dueDate || '').trim());
         const notesChanged = Boolean(isExisting && dup && mergedNotes && mergedNotes.trim() !== (dup.notes || '').trim());
 
         uniqueList[existingIdx] = {
-          name: dup ? dup.name : prevItem.name,
+          name: item.name || prevItem.name,
           phone: mergedPhone,
           dueDate: mergedDueDate,
           notes: mergedNotes,
@@ -204,14 +205,14 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       }
 
       // Check against existing clients in the system
-      const dup = isDuplicateClientName(item.name, safeClients);
+      const dup = isDuplicateClientName(item.name, safeClients, undefined, item.phone);
       const isExisting = Boolean(dup);
       const phoneChanged = Boolean(isExisting && dup && item.phone && item.phone.trim() !== (dup.phone || '').trim());
       const dueDateChanged = Boolean(isExisting && dup && item.dueDate && item.dueDate.trim() !== (dup.dueDate || '').trim());
       const notesChanged = Boolean(isExisting && dup && item.notes && item.notes.trim() !== (dup.notes || '').trim());
 
       const analyzedItem: ParsedBulkClient = {
-        name: dup ? dup.name : item.name,
+        name: item.name,
         phone: item.phone,
         dueDate: item.dueDate,
         notes: item.notes,
@@ -258,34 +259,26 @@ export const ClientModal: React.FC<ClientModalProps> = ({
     const toUpdate: { id: string; data: Partial<Client> }[] = [];
 
     for (const item of parsedBulkList) {
-      if (item.action === 'update' && item.comparison?.existingClientId) {
+      const existing = item.comparison?.existingClientId
+        ? safeClients.find((c) => c.id === item.comparison?.existingClientId)
+        : isDuplicateClientName(item.name, safeClients, undefined, item.phone);
+
+      if (existing) {
         const updateData: Partial<Client> = {};
         if (item.phone && item.phone.trim()) updateData.phone = item.phone.trim();
         if (item.dueDate && item.dueDate.trim()) updateData.dueDate = item.dueDate.trim();
         if (item.notes && item.notes.trim()) updateData.notes = item.notes.trim();
         toUpdate.push({
-          id: item.comparison.existingClientId,
+          id: existing.id,
           data: updateData,
         });
       } else {
-        const existing = isDuplicateClientName(item.name, safeClients);
-        if (existing) {
-          const updateData: Partial<Client> = {};
-          if (item.phone && item.phone.trim()) updateData.phone = item.phone.trim();
-          if (item.dueDate && item.dueDate.trim()) updateData.dueDate = item.dueDate.trim();
-          if (item.notes && item.notes.trim()) updateData.notes = item.notes.trim();
-          toUpdate.push({
-            id: existing.id,
-            data: updateData,
-          });
-        } else {
-          toCreate.push({
-            name: item.name.trim(),
-            phone: item.phone.trim(),
-            dueDate: item.dueDate.trim(),
-            notes: item.notes.trim(),
-          });
-        }
+        toCreate.push({
+          name: item.name.trim(),
+          phone: item.phone.trim(),
+          dueDate: item.dueDate.trim(),
+          notes: item.notes.trim(),
+        });
       }
     }
 
@@ -312,23 +305,19 @@ export const ClientModal: React.FC<ClientModalProps> = ({
 
     const trimmedName = name.trim();
     const safeClients = clients || [];
-    const duplicate = isDuplicateClientName(trimmedName, safeClients, clientToEdit?.id);
+    const duplicate = isDuplicateClientName(trimmedName, safeClients, clientToEdit?.id, phone);
+    const targetEditId = clientToEdit ? clientToEdit.id : (duplicate ? duplicate.id : undefined);
 
-    if (duplicate) {
-      const msg = `⚠️ O cliente "${trimmedName}" não pode ser salvo porque já existe outro cliente cadastrado com este mesmo nome ("${duplicate.name}")!`;
-      setErrorMsg(msg);
-      alert(msg);
-      return;
-    }
+    const finalDueDate = dueDate ? formatForDateTimeInput(dueDate) : undefined;
 
     onSave(
       {
         name: trimmedName,
         phone: phone.trim(),
-        dueDate: dueDate ? dueDate : undefined,
+        dueDate: finalDueDate,
         notes: notes.trim(),
       },
-      clientToEdit ? clientToEdit.id : undefined
+      targetEditId
     );
     onClose();
   };
@@ -639,9 +628,9 @@ export const ClientModal: React.FC<ClientModalProps> = ({
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5 flex items-center justify-between">
                 <span>Nome / Empresa *</span>
-                {duplicateFound && (
-                  <span className="text-rose-600 font-bold text-[11px] flex items-center gap-1 animate-pulse">
-                    <AlertTriangle className="w-3.5 h-3.5" /> Nome Duplicado!
+                {duplicateFound && !clientToEdit && (
+                  <span className="text-amber-700 font-bold text-[11px] flex items-center gap-1">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-600" /> Cliente Existente Detectado
                   </span>
                 )}
               </label>
@@ -655,18 +644,22 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                 }}
                 placeholder="Ex: Ana Silva ou Empresa Ltda"
                 className={`w-full px-3.5 py-2.5 rounded-xl border outline-none text-sm text-slate-800 transition-all ${
-                  duplicateFound
-                    ? 'border-rose-500 bg-rose-50/40 text-rose-950 font-semibold focus:ring-2 focus:ring-rose-500'
+                  duplicateFound && !clientToEdit
+                    ? 'border-amber-400 bg-amber-50/50 text-slate-900 font-semibold focus:ring-2 focus:ring-amber-500'
                     : 'border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                 }`}
               />
-              {duplicateFound && (
-                <div className="mt-2 p-3 bg-rose-100/80 border-2 border-rose-300 text-rose-950 text-xs rounded-xl font-bold flex items-center gap-2.5 shadow-sm animate-in fade-in">
-                  <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
-                  <div>
-                    <p className="font-extrabold text-rose-900">⚠️ Cliente Já Cadastrado!</p>
-                    <p className="font-normal text-[11px] text-rose-800 mt-0.5">
-                      Já existe um cliente cadastrado como <strong>"{duplicateFound.name}"</strong>. Altere o nome para poder salvar.
+              {duplicateFound && !clientToEdit && (
+                <div className="mt-2 p-3 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-2 border-amber-300 text-amber-950 text-xs rounded-xl font-bold flex items-start gap-2.5 shadow-sm animate-in fade-in">
+                  <RefreshCw className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-extrabold text-amber-900 flex items-center gap-1.5">
+                      <span>🔄 Atualização Automática de Cliente Existente</span>
+                    </p>
+                    <p className="font-normal text-[11px] text-amber-900 mt-1 leading-relaxed">
+                      Já existe um cadastro para <strong>"{duplicateFound.name}"</strong>
+                      {duplicateFound.dueDate ? ` (Vencimento atual: ${formatDateTime(duplicateFound.dueDate)})` : ''}.
+                      Ao clicar no botão abaixo, a <strong>nova data de vencimento</strong> e o <strong>telefone</strong> serão atualizados sem criar duplicatas.
                     </p>
                   </div>
                 </div>
@@ -688,8 +681,17 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">
-                  Data e Hora de Vencimento
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5 flex items-center justify-between">
+                  <span>Data e Hora de Vencimento</span>
+                  {dueDate && (
+                    <button
+                      type="button"
+                      onClick={() => setDueDate('')}
+                      className="text-[10px] text-red-500 hover:text-red-700 font-medium cursor-pointer"
+                    >
+                      Limpar
+                    </button>
+                  )}
                 </label>
                 <input
                   type="datetime-local"
@@ -699,6 +701,36 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                   max="2036-12-31T23:59"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm text-slate-800 font-medium"
                 />
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(addOffsetToCurrentDate(1, '00:00'))}
+                    className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-md transition-colors"
+                  >
+                    +30 dias
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(addOffsetToCurrentDate(3, '00:00'))}
+                    className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-md transition-colors"
+                  >
+                    +3 meses
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(addOffsetToCurrentDate(6, '00:00'))}
+                    className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-md transition-colors"
+                  >
+                    +6 meses
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(addOffsetToCurrentDate(12, '00:00'))}
+                    className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-md transition-colors"
+                  >
+                    +1 ano
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -725,9 +757,22 @@ export const ClientModal: React.FC<ClientModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-md shadow-blue-600/25 transition-colors"
+                className={`px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md transition-colors flex items-center gap-2 ${
+                  duplicateFound && !clientToEdit
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/25'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/25'
+                }`}
               >
-                Salvar Cliente
+                {duplicateFound && !clientToEdit ? (
+                  <>
+                    <RefreshCw className="w-4 h-4" />
+                    Atualizar Cadastro Existente
+                  </>
+                ) : clientToEdit ? (
+                  'Salvar Alterações'
+                ) : (
+                  'Salvar Cliente'
+                )}
               </button>
             </div>
           </form>

@@ -16,8 +16,6 @@ import {
   deleteRestorePointFromFirestore,
   deleteWhatsAppMediaFromCloud
 } from './firebase';
-import { cleanClientName, isDateString } from '../utils/clientParser';
-
 import { logger } from './logger';
 export { 
   deleteClientFromFirestore, 
@@ -51,19 +49,15 @@ export function sanitizeAppData(raw: any): AppData {
       if (dummyIds.has(c?.id)) return false;
       const rawName = String(c?.name || '').trim();
       if (dummyNames.has(rawName)) return false;
-      // Filter out clients whose name is actually a date line
-      if (isDateString(rawName)) return false;
-      const cleanedName = cleanClientName(rawName);
-      if (!cleanedName || isDateString(cleanedName)) return false;
+      if (!rawName) return false;
       return true;
     })
     .map((c: any, index: number) => {
-      const rawName = String(c?.name || '').trim();
-      const finalName = cleanClientName(rawName) || rawName;
+      const exactName = typeof c?.name === 'string' ? c.name.trim() : String(c?.name || '').trim();
       return {
         ...c,
         id: String(c.id || `c_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 6)}`),
-        name: finalName,
+        name: exactName || 'Cliente',
         phone: String(c.phone || ''),
       };
     });
@@ -200,7 +194,7 @@ function isRecentRecord(record: any, maxAgeMs = 5 * 60 * 1000): boolean {
 }
 
 // Merge AppData: Cloud Firestore snapshot is authoritative for remote state.
-// Filter out local pending deletions and preserve recently created local offline records.
+// Filter out local pending deletions and preserve recently created/updated local records.
 export function mergeAppData(local: AppData, cloud: AppData): AppData {
   const pendingDeletions = getPendingDeletions();
   const deletedClientIds = new Set(pendingDeletions.clients);
@@ -215,33 +209,77 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
   const localCharges = Array.isArray(local?.charges) ? local.charges : [];
   const localLogs = Array.isArray(local?.sentLogs) ? local.sentLogs : [];
 
-  const cloudClientIds = new Set(cloudClients.map((c) => c?.id).filter(Boolean));
-  const cloudChargeIds = new Set(cloudCharges.map((ch) => ch?.id).filter(Boolean));
-  const cloudLogIds = new Set(cloudLogs.map((l) => l?.id).filter(Boolean));
+  const localUpdated = typeof local?.updatedAt === 'number' ? local.updatedAt : 0;
+  const cloudUpdated = typeof cloud?.updatedAt === 'number' ? cloud.updatedAt : 0;
+  const isLocalNewer = localUpdated > cloudUpdated;
 
-  // 1. Clients: Cloud snapshot + newly created local offline clients
-  const finalClients = [
-    ...cloudClients.filter((c) => c?.id && !deletedClientIds.has(c.id)),
-    ...localClients.filter((c) => c?.id && !cloudClientIds.has(c.id) && !deletedClientIds.has(c.id) && isRecentRecord(c)),
-  ];
+  // 1. Clients: If local is newer, keep local modifications; otherwise prioritize cloud + recent local
+  let finalClients: Client[];
+  if (isLocalNewer) {
+    const localMap = new Map<string, Client>();
+    for (const c of localClients) {
+      if (c?.id && !deletedClientIds.has(c.id)) localMap.set(c.id, c);
+    }
+    for (const c of cloudClients) {
+      if (c?.id && !deletedClientIds.has(c.id) && !localMap.has(c.id)) {
+        localMap.set(c.id, c);
+      }
+    }
+    finalClients = Array.from(localMap.values());
+  } else {
+    const cloudMap = new Map<string, Client>();
+    for (const c of cloudClients) {
+      if (c?.id && !deletedClientIds.has(c.id)) cloudMap.set(c.id, c);
+    }
+    for (const c of localClients) {
+      if (c?.id && !deletedClientIds.has(c.id) && !cloudMap.has(c.id) && isRecentRecord(c)) {
+        cloudMap.set(c.id, c);
+      }
+    }
+    finalClients = Array.from(cloudMap.values());
+  }
 
-  // 2. Charges: Cloud snapshot + newly created local offline charges
-  const finalCharges = [
-    ...cloudCharges.filter((ch) => ch?.id && !deletedChargeIds.has(ch.id)),
-    ...localCharges.filter((ch) => ch?.id && !cloudChargeIds.has(ch.id) && !deletedChargeIds.has(ch.id) && isRecentRecord(ch)),
-  ];
+  // 2. Charges: If local is newer, keep local charges; otherwise prioritize cloud + recent local
+  let finalCharges: Charge[];
+  if (isLocalNewer) {
+    const localChargeMap = new Map<string, Charge>();
+    for (const ch of localCharges) {
+      if (ch?.id && !deletedChargeIds.has(ch.id)) localChargeMap.set(ch.id, ch);
+    }
+    for (const ch of cloudCharges) {
+      if (ch?.id && !deletedChargeIds.has(ch.id) && !localChargeMap.has(ch.id)) {
+        localChargeMap.set(ch.id, ch);
+      }
+    }
+    finalCharges = Array.from(localChargeMap.values());
+  } else {
+    const cloudChargeMap = new Map<string, Charge>();
+    for (const ch of cloudCharges) {
+      if (ch?.id && !deletedChargeIds.has(ch.id)) cloudChargeMap.set(ch.id, ch);
+    }
+    for (const ch of localCharges) {
+      if (ch?.id && !deletedChargeIds.has(ch.id) && !cloudChargeMap.has(ch.id) && isRecentRecord(ch)) {
+        cloudChargeMap.set(ch.id, ch);
+      }
+    }
+    finalCharges = Array.from(cloudChargeMap.values());
+  }
 
-  // 3. SentLogs: Cloud snapshot + newly created local offline logs
-  const finalLogs = [
-    ...cloudLogs.filter((l) => l?.id && !deletedLogIds.has(l.id)),
-    ...localLogs.filter((l) => l?.id && !cloudLogIds.has(l.id) && !deletedLogIds.has(l.id) && isRecentRecord(l)),
-  ];
+  // 3. SentLogs: Merge unique logs
+  const logMap = new Map<string, SentMessageLog>();
+  for (const l of cloudLogs) {
+    if (l?.id && !deletedLogIds.has(l.id)) logMap.set(l.id, l);
+  }
+  for (const l of localLogs) {
+    if (l?.id && !deletedLogIds.has(l.id) && (!logMap.has(l.id) || isLocalNewer)) {
+      logMap.set(l.id, l);
+    }
+  }
+  const finalLogs = Array.from(logMap.values());
 
   const localSettings: Partial<CompanySettings> = local?.settings || {};
   const cloudSettings: Partial<CompanySettings> = cloud?.settings || {};
 
-  const localUpdated = typeof local?.updatedAt === 'number' ? local.updatedAt : 0;
-  const cloudUpdated = typeof cloud?.updatedAt === 'number' ? cloud.updatedAt : 0;
   const isCloudNewerOrEqual = cloudUpdated >= localUpdated;
 
   const baseSettings = isCloudNewerOrEqual

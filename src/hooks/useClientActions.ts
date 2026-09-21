@@ -68,23 +68,83 @@ export const useClientActions = ({
 
   const handleSaveClient = useCallback((clientData: Omit<Client, 'id' | 'createdAt'>, editId?: string) => {
     const trimmedName = clientData.name.trim();
-    const duplicate = isDuplicateClientName(trimmedName, data.clients, editId);
-    if (duplicate) { alert(`⚠️ Não foi possível salvar: já existe um cliente cadastrado com o nome "${duplicate.name}". Não são permitidos nomes duplicados.`); return; }
+    const duplicate = isDuplicateClientName(trimmedName, data.clients, editId, clientData.phone);
+    const targetClientId = editId || (duplicate ? duplicate.id : generateUUID());
+    const isUpdatingExisting = Boolean(editId || duplicate);
+
     setData((prev) => {
+      const duplicate = isDuplicateClientName(trimmedName, prev.clients, editId, clientData.phone);
+      const targetClientId = editId || (duplicate ? duplicate.id : generateUUID());
+      const isUpdatingExisting = Boolean(editId || duplicate);
+
       let updatedClients = [...prev.clients];
       let updatedCharges = [...prev.charges];
-      const targetClientId = editId || generateUUID();
-      if (editId) updatedClients = updatedClients.map((c) => c.id === editId ? { ...c, ...clientData, name: trimmedName } : c);
-      else updatedClients = [{ id: targetClientId, ...clientData, name: trimmedName, createdAt: new Date().toISOString() }, ...updatedClients];
+
+      if (isUpdatingExisting) {
+        updatedClients = updatedClients.map((c) =>
+          c.id === targetClientId
+            ? {
+                ...c,
+                ...clientData,
+                name: trimmedName || c.name,
+                phone: clientData.phone !== undefined ? clientData.phone : c.phone,
+                dueDate: clientData.dueDate !== undefined ? clientData.dueDate : c.dueDate,
+                notes: clientData.notes !== undefined ? clientData.notes : c.notes,
+              }
+            : c
+        );
+      } else {
+        updatedClients = [
+          { id: targetClientId, ...clientData, name: trimmedName, createdAt: new Date().toISOString() },
+          ...updatedClients,
+        ];
+      }
+
       if (clientData.dueDate) {
         const [datePart, timePart] = clientData.dueDate.includes('T') ? clientData.dueDate.split('T') : [clientData.dueDate, ''];
-        const existingChargeIndex = updatedCharges.findIndex((ch) => ch.clientId === targetClientId && !ch.paid);
-        if (existingChargeIndex >= 0) updatedCharges[existingChargeIndex] = { ...updatedCharges[existingChargeIndex], dueDate: datePart, dueTime: timePart || undefined };
-        else updatedCharges = [{ id: generateUUID(), clientId: targetClientId, amount: 0, dueDate: datePart, dueTime: timePart || undefined, paid: false, note: 'Vencimento do Cliente', createdAt: new Date().toISOString() }, ...updatedCharges];
-      } else updatedCharges = updatedCharges.filter((ch) => !(ch.clientId === targetClientId && !ch.paid && ch.note === 'Vencimento do Cliente'));
-      return { ...prev, clients: updatedClients, charges: updatedCharges };
+        let foundUnpaid = false;
+        updatedCharges = updatedCharges.map((ch) => {
+          if (ch.clientId === targetClientId && !ch.paid) {
+            if (!foundUnpaid) {
+              foundUnpaid = true;
+              return { ...ch, dueDate: datePart, dueTime: timePart || undefined };
+            }
+            return null as any;
+          }
+          return ch;
+        }).filter(Boolean);
+
+        if (!foundUnpaid) {
+          updatedCharges = [
+            {
+              id: generateUUID(),
+              clientId: targetClientId,
+              amount: 0,
+              dueDate: datePart,
+              dueTime: timePart || undefined,
+              paid: false,
+              note: 'Vencimento do Cliente',
+              createdAt: new Date().toISOString(),
+            },
+            ...updatedCharges,
+          ];
+        }
+      } else if (!isUpdatingExisting) {
+        updatedCharges = updatedCharges.filter((ch) => !(ch.clientId === targetClientId && !ch.paid && ch.note === 'Vencimento do Cliente'));
+      }
+      return { ...prev, clients: updatedClients, charges: updatedCharges, updatedAt: Date.now() };
     });
-  }, [data.clients, generateUUID, setData]);
+
+    if (setLiveToast) {
+      if (duplicate && !editId) {
+        setLiveToast({ title: 'Cliente Atualizado', message: `Cliente "${duplicate.name}" já existente foi atualizado com a nova data de vencimento!` });
+      } else if (editId) {
+        setLiveToast({ title: 'Cliente Salvo', message: `Cadastro de "${trimmedName}" atualizado com sucesso.` });
+      } else {
+        setLiveToast({ title: 'Novo Cliente', message: `Cliente "${trimmedName}" cadastrado com sucesso.` });
+      }
+    }
+  }, [data.clients, generateUUID, setData, setLiveToast]);
 
   const handleUpdateClientPhone = useCallback((clientId: string, newPhone: string) => setData((prev) => ({ ...prev, clients: prev.clients.map((c) => c.id === clientId ? { ...c, phone: newPhone } : c) })), [setData]);
 
@@ -92,12 +152,14 @@ export const useClientActions = ({
     const toCreate = Array.isArray(payload) ? payload : (payload.toCreate || []);
     const toUpdate = Array.isArray(payload) ? [] : (payload.toUpdate || []);
 
+    let actualCreatedCount = 0;
+    let actualUpdatedCount = 0;
+
     setData((prev) => {
       let updatedClients = [...prev.clients];
       let updatedCharges = [...prev.charges];
-      const existingNames = new Set(prev.clients.map((c) => c.name.trim().toLowerCase()));
 
-      // 1. Process Updates for Existing Clients (NO duplicate created, updates phone, dueDate, notes)
+      // 1. Process Explicit Updates for Existing Clients
       for (const item of toUpdate) {
         const cIndex = updatedClients.findIndex((c) => c.id === item.id);
         if (cIndex === -1) continue;
@@ -110,20 +172,26 @@ export const useClientActions = ({
           ...(item.data.notes !== undefined && item.data.notes !== '' ? { notes: item.data.notes } : {}),
         };
         updatedClients[cIndex] = updatedClient;
+        actualUpdatedCount++;
 
         // Keep unpaid charge synchronized if dueDate is updated
         if (item.data.dueDate) {
           const [datePart, timePart] = item.data.dueDate.includes('T')
             ? item.data.dueDate.split('T')
             : [item.data.dueDate, ''];
-          const existingChargeIndex = updatedCharges.findIndex((ch) => ch.clientId === item.id && !ch.paid);
-          if (existingChargeIndex >= 0) {
-            updatedCharges[existingChargeIndex] = {
-              ...updatedCharges[existingChargeIndex],
-              dueDate: datePart,
-              dueTime: timePart || undefined,
-            };
-          } else {
+          let foundUnpaid = false;
+          updatedCharges = updatedCharges.map((ch) => {
+            if (ch.clientId === item.id && !ch.paid) {
+              if (!foundUnpaid) {
+                foundUnpaid = true;
+                return { ...ch, dueDate: datePart, dueTime: timePart || undefined };
+              }
+              return null as any;
+            }
+            return ch;
+          }).filter(Boolean);
+
+          if (!foundUnpaid) {
             updatedCharges = [
               {
                 id: generateUUID(),
@@ -141,17 +209,67 @@ export const useClientActions = ({
         }
       }
 
-      // 2. Process New Clients to Create
+      // 2. Process toCreate items: if matches existing client, UPDATE it; otherwise CREATE
       for (const clientData of toCreate) {
         const trimmedName = clientData.name.trim();
-        const lowerName = trimmedName.toLowerCase();
-        if (existingNames.has(lowerName)) continue;
-        existingNames.add(lowerName);
+        const existing = isDuplicateClientName(trimmedName, updatedClients, undefined, clientData.phone);
+
+        if (existing) {
+          // Update the existing client instead of dropping or duplicating
+          const cIndex = updatedClients.findIndex((c) => c.id === existing.id);
+          if (cIndex !== -1) {
+            updatedClients[cIndex] = {
+              ...updatedClients[cIndex],
+              ...(clientData.phone ? { phone: clientData.phone } : {}),
+              ...(clientData.dueDate ? { dueDate: clientData.dueDate } : {}),
+              ...(clientData.notes ? { notes: clientData.notes } : {}),
+            };
+            actualUpdatedCount++;
+
+            if (clientData.dueDate) {
+              const [datePart, timePart] = clientData.dueDate.includes('T')
+                ? clientData.dueDate.split('T')
+                : [clientData.dueDate, ''];
+              let foundUnpaid = false;
+              updatedCharges = updatedCharges.map((ch) => {
+                if (ch.clientId === existing.id && !ch.paid) {
+                  if (!foundUnpaid) {
+                    foundUnpaid = true;
+                    return { ...ch, dueDate: datePart, dueTime: timePart || undefined };
+                  }
+                  return null as any;
+                }
+                return ch;
+              }).filter(Boolean);
+
+              if (!foundUnpaid) {
+                updatedCharges = [
+                  {
+                    id: generateUUID(),
+                    clientId: existing.id,
+                    amount: 0,
+                    dueDate: datePart,
+                    dueTime: timePart || undefined,
+                    paid: false,
+                    note: 'Vencimento do Cliente',
+                    createdAt: new Date().toISOString(),
+                  },
+                  ...updatedCharges,
+                ];
+              }
+            }
+          }
+          continue;
+        }
+
+        // Truly new client
         const targetClientId = generateUUID();
         updatedClients = [
           { id: targetClientId, ...clientData, name: trimmedName, createdAt: new Date().toISOString() },
           ...updatedClients,
         ];
+        actualCreatedCount++;
+
         if (clientData.dueDate) {
           const [datePart, timePart] = clientData.dueDate.includes('T')
             ? clientData.dueDate.split('T')
@@ -172,17 +290,16 @@ export const useClientActions = ({
         }
       }
 
-      return { ...prev, clients: updatedClients, charges: updatedCharges };
+      return { ...prev, clients: updatedClients, charges: updatedCharges, updatedAt: Date.now() };
     });
 
-    if (setLiveToast && (toCreate.length > 0 || toUpdate.length > 0)) {
+    if (setLiveToast && (actualCreatedCount > 0 || actualUpdatedCount > 0)) {
       const summaryMsg = [];
-      if (toCreate.length > 0) summaryMsg.push(`${toCreate.length} novo(s) cadastrado(s)`);
-      if (toUpdate.length > 0) summaryMsg.push(`${toUpdate.length} existente(s) atualizado(s)`);
+      if (actualCreatedCount > 0) summaryMsg.push(`${actualCreatedCount} novo(s) cadastrado(s)`);
+      if (actualUpdatedCount > 0) summaryMsg.push(`${actualUpdatedCount} existente(s) atualizado(s) com a nova data`);
       setLiveToast({
-        title: 'Processamento em Massa Concluído',
-        description: `${summaryMsg.join(' e ')} com sucesso, sem duplicidades!`,
-        type: 'charge_due',
+        title: 'Importação / Atualização Concluída',
+        message: `${summaryMsg.join(' e ')} com sucesso!`,
       });
     }
   }, [generateUUID, setData, setLiveToast]);
