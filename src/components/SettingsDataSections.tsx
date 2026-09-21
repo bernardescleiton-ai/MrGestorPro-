@@ -36,7 +36,7 @@ export const SettingsDataSections: React.FC<{
                 </span>
               </h2>
               <p className="text-xs text-slate-500 font-mono">
-                Sincronizados instantaneamente entre App APK (celular) e Navegador Web. Pontos automáticos diários ou manuais.
+                Sincronizados instantaneamente entre App APK (celular) e Navegador Web. Ponto automático programado para todos os dias às 00:00 ou criado manualmente.
               </p>
             </div>
           </div>
@@ -183,7 +183,7 @@ export const SettingsDataSections: React.FC<{
                             </span>
                           ) : isAuto ? (
                             <span className="text-[10px] bg-amber-100 text-amber-800 border border-amber-200/80 px-2 py-0.5 rounded-full font-mono font-bold">
-                              Automático (1/dia)
+                              Automático (00:00 Diário)
                             </span>
                           ) : (
                             <span className="text-[10px] bg-blue-100 text-blue-800 border border-blue-200/80 px-2 py-0.5 rounded-full font-mono font-bold">

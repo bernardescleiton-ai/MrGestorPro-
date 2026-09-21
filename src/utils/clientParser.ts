@@ -53,19 +53,37 @@ export function extractPhoneNumber(text: string): string {
   if (!text) return '';
   const clean = text.replace(/^(whatsapp|whats|wpp|telefone|tel|celular|cel|fone|phone|mobile)\s*[:=-]\s*/i, '').trim();
 
-  // 1) Match with DDD + number (e.g. 48 9608-9646, (48) 99189-3201, +55 48 9608-9646, 51 9482-1163)
+  // 1) Match international format starting with + (e.g. +1 (555) 123-4567, +351 912 345 678, +44 7911 123456, +55 11 99999-9999)
+  const matchInternationalPlus = clean.match(/\+(?:[1-9]\d{0,2})[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}/);
+  if (matchInternationalPlus) {
+    return matchInternationalPlus[0].trim();
+  }
+
+  // 2) Match Portugal numbers with DDI 351 (e.g. 351 912 345 678, 351912345678, 351 21 123 4567)
+  const matchPortugal = clean.match(/\b351[-.\s]?(?:9\d{2}|\d{2})[-.\s]?\d{3}[-.\s]?\d{3,4}\b/);
+  if (matchPortugal) {
+    return matchPortugal[0].trim();
+  }
+
+  // 3) Match USA / Canada numbers with DDI 1 or US format (e.g. 1 (555) 123-4567, (555) 123-4567, 1-555-123-4567)
+  const matchUSA = clean.match(/\b1[-.\s]?\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}\b/);
+  if (matchUSA) {
+    return matchUSA[0].trim();
+  }
+
+  // 4) Match standard Brazil with DDD + number (e.g. 48 9608-9646, (48) 99189-3201, +55 48 9608-9646, 51 9482-1163)
   const matchWithDDD = clean.match(/(?:\+?55\s*)?(?:\([1-9]{2}\)|[1-9]{2})\s*(?:9\d{4}|\d{4})[-.\s]?\d{4}/);
   if (matchWithDDD) {
     return matchWithDDD[0].trim();
   }
 
-  // 2) Match 10 or 11 digits continuous or formatted
+  // 5) Match 10 or 11 digits continuous or formatted
   const matchDigits = clean.match(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\d{4}|\d{4})[-.\s]?\d{4}/);
   if (matchDigits) {
     return matchDigits[0].trim();
   }
 
-  // 3) Match 8 or 9 digits local number (e.g. 9608-9646, 99608-9646)
+  // 6) Match 8 or 9 digits local number (e.g. 9608-9646, 99608-9646)
   const matchLocal = clean.match(/\b(?:9\d{4}|\d{4})[-.\s]?\d{4}\b/);
   if (matchLocal) {
     return matchLocal[0].trim();
@@ -91,8 +109,8 @@ export function isPhoneNumber(str: string): boolean {
     return false;
   }
 
-  // Check digit length for valid Brazilian phone numbers (8 to 13 digits)
-  if (digits.length >= 8 && digits.length <= 13) {
+  // Check digit length for valid phone numbers (national & international: 7 to 15 digits according to E.164)
+  if (digits.length >= 7 && digits.length <= 15) {
     return true;
   }
 

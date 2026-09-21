@@ -31,9 +31,9 @@ export const useRestorePoints = (dataRef: React.MutableRefObject<AppData>) => {
       const currentAppData = dataRef.current;
       if (isAuto && (!currentAppData || (!currentAppData.clients.length && !currentAppData.charges.length))) return null;
       const dateFormatted = `${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
-      const pointTitle = customName || (isAuto ? `Ponto Automático - ${now.toLocaleDateString('pt-BR')}` : `Ponto de Restauração - Sistema (${dateFormatted})`);
+      const pointTitle = customName || (isAuto ? `Ponto Automático Diário (00:00) - ${now.toLocaleDateString('pt-BR')}` : `Ponto de Restauração - Sistema (${dateFormatted})`);
       const newPoint: SystemRestorePoint = {
-        id: `rp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        id: isAuto ? `rp_auto_${todayDateStr.replace(/-/g, '_')}_0000` : `rp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         name: pointTitle,
         createdAt: now.toISOString(),
         clientsCount: currentAppData?.clients.length || 0,
@@ -58,12 +58,47 @@ export const useRestorePoints = (dataRef: React.MutableRefObject<AppData>) => {
     }
   };
 
+  // Schedule automatic restore point every day at 00:00
   useEffect(() => {
-    const timer = setTimeout(() => {
+    let midnightTimeout: NodeJS.Timeout | null = null;
+
+    const checkAndTriggerDailyRestore = () => {
       const todayDateStr = new Date().toISOString().split('T')[0];
-      if (localStorage.getItem('gc_v1_last_auto_restore_date') !== todayDateStr) createRestorePoint(`Ponto Automático - ${new Date().toLocaleDateString('pt-BR')}`, true);
-    }, 2000);
-    return () => clearTimeout(timer);
+      const lastAuto = localStorage.getItem('gc_v1_last_auto_restore_date');
+      if (lastAuto !== todayDateStr) {
+        createRestorePoint(`Ponto Automático Diário (00:00) - ${new Date().toLocaleDateString('pt-BR')}`, true);
+      }
+    };
+
+    // 1. Initial check after app readiness
+    const initialTimer = setTimeout(() => {
+      checkAndTriggerDailyRestore();
+    }, 2500);
+
+    // 2. Exact calculation for next midnight 00:00:00
+    const scheduleNextMidnight = () => {
+      const now = new Date();
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+      const msUntilMidnight = Math.max(1000, nextMidnight.getTime() - now.getTime());
+
+      midnightTimeout = setTimeout(() => {
+        checkAndTriggerDailyRestore();
+        scheduleNextMidnight(); // schedule next day 00:00
+      }, msUntilMidnight);
+    };
+
+    scheduleNextMidnight();
+
+    // 3. Periodic fallback check every 60 seconds (handles device sleep/tab resume across midnight)
+    const intervalCheck = setInterval(() => {
+      checkAndTriggerDailyRestore();
+    }, 60000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      if (midnightTimeout) clearTimeout(midnightTimeout);
+      clearInterval(intervalCheck);
+    };
   }, []);
 
   const handleDeleteRestorePoint = async (pointId: string) => {

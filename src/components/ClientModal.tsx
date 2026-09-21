@@ -675,15 +675,16 @@ export const ClientModal: React.FC<ClientModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">
-                  WhatsApp <span className="text-slate-400 font-normal">(Opcional - pode incluir depois)</span>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5 flex items-center justify-between">
+                  <span>WhatsApp <span className="text-slate-400 font-normal font-sans">(Nacional ou Estrangeiro)</span></span>
+                  <span className="text-[10px] text-blue-600 font-semibold lowercase">🇧🇷 +55 • 🇺🇸 +1 • 🇵🇹 +351</span>
                 </label>
                 <input
                   type="text"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="(48) 99999-9999"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm text-slate-800"
+                  placeholder="Ex: (48) 99999-9999, +1 (555) 123-4567, +351 912 345 678"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm text-slate-800 placeholder:text-slate-400"
                 />
               </div>
               <div>

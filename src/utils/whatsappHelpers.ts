@@ -1,5 +1,76 @@
-import { CompanySettings } from '../types';
-import { normalizePhone } from './formatters';
+import { Client, CompanySettings } from '../types';
+import { normalizePhone, formatDateTimeBR } from './formatters';
+
+export const getWhatsAppFullPhone = (phoneInput: string): string => {
+  if (!phoneInput) return '';
+  const trimmed = String(phoneInput).trim();
+  const digits = normalizePhone(trimmed);
+  if (!digits) return '';
+
+  const hasPlus = trimmed.startsWith('+') || trimmed.startsWith('00');
+
+  // If explicit '+' or '00' international prefix, use digits directly
+  if (hasPlus) {
+    return digits.replace(/^00/, '');
+  }
+
+  // Already has Brazil DDI (55) with valid length (12 or 13 digits)
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    return digits;
+  }
+
+  // Portugal (DDI 351) with 12 digits (351 + 9 digits)
+  if (digits.startsWith('351') && digits.length === 12) {
+    return digits;
+  }
+
+  // UK (DDI 44) with 11-13 digits
+  if (digits.startsWith('44') && digits.length >= 11 && digits.length <= 13) {
+    return digits;
+  }
+
+  // Spain (DDI 34) with 11 digits
+  if (digits.startsWith('34') && digits.length === 11) {
+    return digits;
+  }
+
+  // France (DDI 33) with 11 digits
+  if (digits.startsWith('33') && digits.length === 11) {
+    return digits;
+  }
+
+  // Italy (DDI 39) with 12 digits
+  if (digits.startsWith('39') && digits.length === 12) {
+    return digits;
+  }
+
+  // Germany (DDI 49) with 12-14 digits
+  if (digits.startsWith('49') && digits.length >= 12 && digits.length <= 14) {
+    return digits;
+  }
+
+  // Argentina (DDI 54) with 12-13 digits
+  if (digits.startsWith('54') && digits.length >= 12 && digits.length <= 13) {
+    return digits;
+  }
+
+  // USA / Canada (DDI 1) with 11 digits (e.g. 1 + area code 200-999)
+  if (digits.startsWith('1') && digits.length === 11 && (digits[1] !== '1' || digits[2] !== '9')) {
+    return digits;
+  }
+
+  // Standard Brazilian 10 or 11 digits without 55
+  if (digits.length === 10 || digits.length === 11) {
+    return `55${digits}`;
+  }
+
+  // Short Brazilian 8 or 9 digits
+  if (digits.length === 8 || digits.length === 9) {
+    return `55${digits}`;
+  }
+
+  return digits;
+};
 
 export const encodeForWhatsApp = (text: string): string => {
   if (!text) return '';
@@ -7,13 +78,12 @@ export const encodeForWhatsApp = (text: string): string => {
 };
 
 export const openWhatsAppLink = (phoneInput: string, text: string, settings?: CompanySettings): void => {
-  const phone = normalizePhone(phoneInput);
-  if (!phone) {
+  const fullPhone = getWhatsAppFullPhone(phoneInput);
+  if (!fullPhone) {
     alert('Cliente sem WhatsApp cadastrado.');
     return;
   }
 
-  const fullPhone = phone.length <= 11 && !phone.startsWith('55') ? `55${phone}` : phone;
   const encodedText = text ? encodeForWhatsApp(text) : '';
   const method = settings?.whatsappMethod || 'direct_app';
 

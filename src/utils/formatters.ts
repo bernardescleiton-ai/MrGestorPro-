@@ -26,14 +26,77 @@ export const normalizePhone = (p: string): string => {
 };
 
 export const formatPhoneBR = (phone: string): string => {
-  const digits = normalizePhone(phone);
-  if (!digits) return '';
-  if (digits.length === 11) {
+  return formatPhoneNumber(phone);
+};
+
+export const formatPhoneNumber = (phone: string): string => {
+  if (!phone) return '';
+  const trimmed = String(phone).trim();
+  const digits = normalizePhone(trimmed);
+  if (!digits) return phone;
+
+  const hasPlus = trimmed.startsWith('+');
+
+  // 1. Brazil with 55: 55 + 2 digits DDD + 8 or 9 digits (12 or 13 digits)
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    const ddd = digits.slice(2, 4);
+    const num = digits.slice(4);
+    if (num.length === 9) {
+      return `+55 (${ddd}) ${num.slice(0, 5)}-${num.slice(5)}`;
+    }
+    return `+55 (${ddd}) ${num.slice(0, 4)}-${num.slice(4)}`;
+  }
+
+  // 2. Portugal (+351): 351 + 9 digits (12 digits total)
+  if ((hasPlus || digits.startsWith('351')) && digits.startsWith('351') && digits.length === 12) {
+    const num = digits.slice(3);
+    return `+351 ${num.slice(0, 3)} ${num.slice(3, 6)} ${num.slice(6)}`;
+  }
+
+  // 3. USA / Canada (+1): 1 + 10 digits (11 digits total)
+  if (digits.startsWith('1') && digits.length === 11) {
+    // If entered with '+' or has standard US area code (second digit 2-9)
+    if (hasPlus || (digits[1] !== '1' || digits[2] !== '9')) {
+      const area = digits.slice(1, 4);
+      const mid = digits.slice(4, 7);
+      const end = digits.slice(7);
+      return `+1 (${area}) ${mid}-${end}`;
+    }
+  }
+
+  // 4. United Kingdom (+44): 44 + 10 digits (12 digits)
+  if (digits.startsWith('44') && (digits.length === 12 || digits.length === 11)) {
+    const num = digits.slice(2);
+    return `+44 ${num.slice(0, 4)} ${num.slice(4)}`;
+  }
+
+  // 5. Spain (+34): 34 + 9 digits (11 digits)
+  if (digits.startsWith('34') && digits.length === 11) {
+    const num = digits.slice(2);
+    return `+34 ${num.slice(0, 3)} ${num.slice(3, 6)} ${num.slice(6)}`;
+  }
+
+  // 6. France (+33): 33 + 9 digits (11 digits)
+  if (digits.startsWith('33') && digits.length === 11) {
+    const num = digits.slice(2);
+    return `+33 ${num.slice(0, 1)} ${num.slice(1, 3)} ${num.slice(3, 5)} ${num.slice(5, 7)} ${num.slice(7)}`;
+  }
+
+  // 7. Standard Brazil without 55: (11 digits mobile: DDD + 9 digits)
+  if (digits.length === 11 && !hasPlus) {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   }
-  if (digits.length === 10) {
+
+  // 8. Standard Brazil without 55: (10 digits landline: DDD + 8 digits)
+  if (digits.length === 10 && !hasPlus) {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
   }
+
+  // 9. If starts with '+' or has international length >= 12
+  if (hasPlus) {
+    return `+${digits}`;
+  }
+
   return phone;
 };
 

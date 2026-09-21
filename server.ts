@@ -194,7 +194,61 @@ process.on('unhandledRejection', (reason) => {
   console.error('Server process unhandledRejection handled:', reason);
 });
 
+// Daily 00:00 automatic restore point background scheduler
+function initMidnightRestoreScheduler() {
+  const runMidnightSnapshot = async () => {
+    try {
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const data = readLocalStorage();
+      if (!data || (!data.clients?.length && !data.charges?.length)) return;
+
+      const dateBR = now.toLocaleDateString('pt-BR');
+      const pointId = `rp_auto_${todayStr.replace(/-/g, '_')}_0000`;
+      const restorePoint = {
+        id: pointId,
+        name: `Ponto Automático Diário (00:00) - ${dateBR}`,
+        createdAt: now.toISOString(),
+        clientsCount: data.clients?.length || 0,
+        chargesCount: data.charges?.length || 0,
+        data: {
+          clients: data.clients || [],
+          charges: data.charges || [],
+          settings: data.settings || {},
+        },
+      };
+
+      if (db && Date.now() > firestoreCooldownUntil) {
+        try {
+          const pointRef = doc(db, 'restore_points', pointId);
+          const { id: _id, ...rest } = restorePoint;
+          await setDoc(pointRef, sanitizeDataForFirestore(rest), { merge: true });
+          console.log(`[Server Scheduler] Daily 00:00 restore point synced to Firestore: ${pointId}`);
+        } catch (err: any) {
+          console.warn('[Server Scheduler] Firestore restore point notice:', err?.message);
+        }
+      }
+    } catch (err) {
+      console.warn('[Server Scheduler] Midnight snapshot notice:', err);
+    }
+  };
+
+  const scheduleNextMidnight = () => {
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+    const msUntilMidnight = Math.max(1000, nextMidnight.getTime() - now.getTime());
+
+    setTimeout(() => {
+      runMidnightSnapshot();
+      scheduleNextMidnight();
+    }, msUntilMidnight);
+  };
+
+  scheduleNextMidnight();
+}
+
 async function startServer() {
+  initMidnightRestoreScheduler();
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true, host: '0.0.0.0', port: 3000 },
