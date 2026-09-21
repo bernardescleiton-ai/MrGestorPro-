@@ -9,7 +9,7 @@ import { useMessagingActions } from './hooks/useMessagingActions';
 
 export default function App() {
   const app = useAppData();
-  const { restorePoints, createRestorePoint, handleDeleteRestorePoint } = useRestorePoints(app.dataRef);
+  const { restorePoints, createRestorePoint, handleDeleteRestorePoint, importExternalRestorePoint } = useRestorePoints(app.dataRef);
 
   useCloudSync({
     data: app.data,
@@ -69,6 +69,7 @@ export default function App() {
       restorePoints={restorePoints}
       createRestorePoint={createRestorePoint}
       handleDeleteRestorePoint={handleDeleteRestorePoint}
+      importExternalRestorePoint={importExternalRestorePoint}
       handleImportData={handleImportData}
     />
   );

@@ -7,14 +7,10 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { CompanySettings, Client, Charge, SystemRestorePoint } from '../types';
-import { NotificationPermissionSection } from './NotificationPermissionSection';
 import { SettingsDataSections } from './SettingsDataSections';
-import {
-  getNotificationPermissionStatus,
-  requestDeviceNotificationPermission,
-  sendTestNotification
-} from '../utils/notifications';
+import { parseExternalRestoreData } from '../utils/restoreParser';
 import { logger } from '../lib/logger';
+
 interface SettingsViewProps {
   settings: CompanySettings;
   onSaveSettings: (settings: CompanySettings) => void;
@@ -23,6 +19,7 @@ interface SettingsViewProps {
   restorePoints?: SystemRestorePoint[];
   onCreateRestorePoint?: (name?: string) => Promise<SystemRestorePoint | null>;
   onDeleteRestorePoint?: (id: string) => Promise<void>;
+  onImportExternalRestorePoint?: (name: string | undefined, data: { clients?: Client[]; charges?: Charge[]; settings?: CompanySettings }) => Promise<SystemRestorePoint | null>;
   onImportData?: (newData: { settings: CompanySettings; clients: Client[]; charges: Charge[] }) => void;
   onSync?: () => void;
   isSyncing?: boolean;
@@ -39,17 +36,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   restorePoints: propRestorePoints,
   onCreateRestorePoint,
   onDeleteRestorePoint,
+  onImportExternalRestorePoint,
   onImportData,
   onSync,
   isSyncing = false,
   syncError = null,
 }) => {
-  const [permStatus, setPermStatus] = useState(getNotificationPermissionStatus());
   const [importCodeInput, setImportCodeInput] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [restorePointName, setRestorePointName] = useState('');
   const [toast, setToast] = useState<ToastFeedback | null>(null);
   const [isSavingPoint, setIsSavingPoint] = useState(false);
+
+  // External Restore States for the Restore Points Tab
+  const [externalRestoreInput, setExternalRestoreInput] = useState('');
+  const [isApplyingExternal, setIsApplyingExternal] = useState(false);
+
   // Custom in-app dialog states
   const [pointToDelete, setPointToDelete] = useState<SystemRestorePoint | null>(null);
   const [pointToRestore, setPointToRestore] = useState<SystemRestorePoint | null>(null);
@@ -62,9 +64,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   });
   const restorePoints = propRestorePoints !== undefined ? propRestorePoints : localRestorePoints;
-  useEffect(() => {
-    setPermStatus(getNotificationPermissionStatus());
-  }, []);
+
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ message, type });
     setTimeout(() => {
@@ -242,15 +242,104 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     };
     reader.readAsText(file);
   };
-  const handleRequestPermission = async () => {
-    const granted = await requestDeviceNotificationPermission();
-    setPermStatus(getNotificationPermissionStatus());
-    if (granted) {
-      showToast('Permissão concedida! As notificações foram ativadas.', 'success');
-    } else {
-      showToast('Permissão negada ou não permitida pelo navegador.', 'error');
+
+  const handleExternalFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = parseExternalRestoreData(content);
+        if (parsed && (parsed.clients.length > 0 || parsed.charges.length > 0 || parsed.settings)) {
+          setExternalRestoreInput(content);
+          showToast(`Arquivo "${file.name}" carregado! (${parsed.clients.length} clientes, ${parsed.charges.length} cobranças identificadas).`, 'info');
+        } else {
+          showToast('O arquivo selecionado não contém dados de restauração ou backup válidos.', 'error');
+        }
+      } catch {
+        showToast('Erro ao ler o arquivo JSON.', 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleApplyExternalRestore = async (mode: 'restore' | 'point' | 'both') => {
+    if (!externalRestoreInput.trim()) {
+      showToast('Cole o código/JSON ou selecione um arquivo .json para restaurar.', 'error');
+      return;
+    }
+    const parsed = parseExternalRestoreData(externalRestoreInput);
+    if (!parsed || (parsed.clients.length === 0 && parsed.charges.length === 0 && !parsed.settings)) {
+      showToast('Formato inválido ou nenhum dado encontrado no código/arquivo informado.', 'error');
+      return;
+    }
+
+    setIsApplyingExternal(true);
+    try {
+      const now = new Date();
+      const dateFormatted = `${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+      const pointName = parsed.name?.trim() || `Ponto Externo - ${dateFormatted}`;
+
+      // 1. Restaurar no sistema ativo
+      if (mode === 'restore' || mode === 'both') {
+        if (onImportData) {
+          onImportData({
+            settings: parsed.settings || settings,
+            clients: parsed.clients || [],
+            charges: parsed.charges || [],
+          });
+        }
+      }
+
+      // 2. Salvar como novo ponto de restauração
+      if (mode === 'point' || mode === 'both') {
+        if (onImportExternalRestorePoint) {
+          await onImportExternalRestorePoint(pointName, {
+            clients: parsed.clients,
+            charges: parsed.charges,
+            settings: parsed.settings || settings,
+          });
+        } else {
+          const newPoint: SystemRestorePoint = {
+            id: `rp_ext_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            name: pointName,
+            createdAt: parsed.createdAt || now.toISOString(),
+            clientsCount: parsed.clients.length,
+            chargesCount: parsed.charges.length,
+            data: {
+              clients: parsed.clients,
+              charges: parsed.charges,
+              settings: parsed.settings || settings,
+            },
+          };
+          const updated = [newPoint, ...localRestorePoints];
+          setLocalRestorePoints(updated);
+          try {
+            localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
+          } catch (e) {
+            logger.error('Error saving external restore point:', e);
+          }
+        }
+      }
+
+      if (mode === 'both') {
+        showToast(`Restauração externa concluída! Sistema atualizado com ${parsed.clients.length} clientes e ponto adicionado ao histórico.`, 'success');
+      } else if (mode === 'restore') {
+        showToast(`Sistema restaurado com sucesso! (${parsed.clients.length} clientes, ${parsed.charges.length} cobranças aplicadas)`, 'success');
+      } else {
+        showToast(`Ponto de restauração externo "${pointName}" salvo no histórico com sucesso!`, 'success');
+      }
+      setExternalRestoreInput('');
+    } catch (err) {
+      logger.error('Error applying external restore:', err);
+      showToast('Erro ao aplicar restauração externa.', 'error');
+    } finally {
+      setIsApplyingExternal(false);
     }
   };
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
       {/* Toast Notification Banner */}
@@ -284,14 +373,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           Configurações & Backup de Dados
         </h1>
         <p className="text-slate-500 text-xs font-mono mt-0.5">
-          Gerencie a sincronia em nuvem, crie pontos de restauração instantâneos e configure as permissões de notificação do celular.
+          Gerencie a sincronia em nuvem, crie pontos de restauração instantâneos e gerencie backups do sistema.
         </p>
       </div>
-      <NotificationPermissionSection
-        permStatus={permStatus}
-        onRequestPermission={handleRequestPermission}
-        onTestNotification={() => { sendTestNotification(); showToast('Alerta de teste enviado!', 'info'); }}
-      />
       <SettingsDataSections
         clients={clients}
         charges={charges}
@@ -318,6 +402,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         handleConfirmRestore={handleConfirmRestore}
         setPointToDelete={setPointToDelete}
         setPointToRestore={setPointToRestore}
+        externalRestoreInput={externalRestoreInput}
+        setExternalRestoreInput={setExternalRestoreInput}
+        handleExternalFileUpload={handleExternalFileUpload}
+        handleApplyExternalRestore={handleApplyExternalRestore}
+        isApplyingExternal={isApplyingExternal}
       />
     </div>
   );

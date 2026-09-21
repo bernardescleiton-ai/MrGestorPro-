@@ -38,7 +38,9 @@ export interface AppLayoutProps {
   handleSaveCharge: (charge: Omit<Charge, 'id' | 'createdAt' | 'paid'>) => void; handleOpenNewCharge: (clientId?: string) => void;
   handleConfirmRenewal: (args: { client: Client; months: number; customAmount: number; recordPaidCharge: boolean; sendWhatsApp: boolean; customDateStr?: string; customWhatsAppMessage?: string }) => void;
   handleSaveRenewalTemplate: (text: string) => void; createRestorePoint: (name?: string, isAuto?: boolean) => Promise<SystemRestorePoint | null>;
-  handleDeleteRestorePoint: (id: string) => Promise<void>; handleImportData: (newData: { settings: CompanySettings; clients: Client[]; charges: Charge[] }) => void;
+  handleDeleteRestorePoint: (id: string) => Promise<void>;
+  importExternalRestorePoint?: (name: string | undefined, data: { clients?: Client[]; charges?: Charge[]; settings?: CompanySettings }) => Promise<SystemRestorePoint | null>;
+  handleImportData: (newData: { settings: CompanySettings; clients: Client[]; charges: Charge[] }) => void;
 }
 export const AppLayout: React.FC<AppLayoutProps> = ({
   data, activeSection, dueTabFilter, clientStatusFilter, liveToast, renewalToast, isClientModalOpen, clientToEdit,
@@ -46,7 +48,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   setActiveSection, setClientStatusFilter, setLiveToast, setRenewalToast, setIsClientModalOpen, setIsChargeModalOpen, setHistoryClient, setIsRenewalModalOpen, setConfirmModal,
   handleManualSync, handleNavigate, handleOpenNewClient, handleOpenEditClient, handleUpdateClientPhone, handleDeleteClient, handleDeleteBatch, handleSendWhatsApp, recordSentMessage, handleOpenRenewClient,
   handleMarkPaid, handleUndoPaid, handleDeleteCharge, handleDeleteSentLog, handleDeleteSentLogsBatch, handleDeleteChargesBatch, handleToggleMessageSent,
-  handleSaveClient, handleSaveBatch, handleSaveCharge, handleOpenNewCharge, handleConfirmRenewal, handleSaveRenewalTemplate, handleSaveSettings, createRestorePoint, handleDeleteRestorePoint, handleImportData,
+  handleSaveClient, handleSaveBatch, handleSaveCharge, handleOpenNewCharge, handleConfirmRenewal, handleSaveRenewalTemplate, handleSaveSettings, createRestorePoint, handleDeleteRestorePoint, importExternalRestorePoint, handleImportData,
 }) => {
   const [messageModalState, setMessageModalState] = React.useState<{
     isOpen: boolean;
@@ -161,6 +163,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             restorePoints={restorePoints}
             onCreateRestorePoint={(name) => createRestorePoint(name, false)}
             onDeleteRestorePoint={handleDeleteRestorePoint}
+            onImportExternalRestorePoint={importExternalRestorePoint}
             onSync={handleManualSync}
             isSyncing={isSyncing}
             syncError={syncError}

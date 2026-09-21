@@ -1,13 +1,20 @@
 import React from 'react';
-import { Download, Upload, Database, Copy, Check, Camera, RotateCcw, History, Trash2, ShieldCheck, HardDrive, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Download, Upload, Database, Copy, Check, Camera, RotateCcw, History, Trash2, ShieldCheck, HardDrive, RefreshCw, AlertTriangle, FileUp, BookmarkPlus } from 'lucide-react';
 import type { Client, Charge, CompanySettings, SystemRestorePoint } from '../types';
+import { parseExternalRestoreData } from '../utils/restoreParser';
+
 export const SettingsDataSections: React.FC<{
   clients: Client[]; charges: Charge[]; restorePoints: SystemRestorePoint[]; restorePointName: string; setRestorePointName: (value: string) => void; isSavingPoint: boolean;
   handleCreateRestorePoint: () => void; handleDownloadRestorePoint: (point: SystemRestorePoint) => void;
   settings: CompanySettings; copiedCode: boolean; importCodeInput: string; setImportCodeInput: (value: string) => void; handleCopyBackupCode: () => void; handleExportJSON: () => void; handleImportFromText: () => void; handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSync?: () => void; isSyncing: boolean; syncError: string | null; pointToDelete: SystemRestorePoint | null; pointToRestore: SystemRestorePoint | null; handleConfirmDelete: () => void; handleConfirmRestore: () => void; setPointToDelete: (value: SystemRestorePoint | null) => void; setPointToRestore: (value: SystemRestorePoint | null) => void;
+  externalRestoreInput: string; setExternalRestoreInput: (value: string) => void; handleExternalFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void; handleApplyExternalRestore: (mode: 'restore' | 'point' | 'both') => Promise<void>; isApplyingExternal: boolean;
 }> = (props) => {
-  const { clients, charges, restorePoints, restorePointName, setRestorePointName, isSavingPoint, handleCreateRestorePoint, handleDownloadRestorePoint, settings, copiedCode, importCodeInput, setImportCodeInput, handleCopyBackupCode, handleExportJSON, handleImportFromText, handleFileUpload, onSync, isSyncing, syncError, pointToDelete, pointToRestore, handleConfirmDelete, handleConfirmRestore, setPointToDelete, setPointToRestore } = props;
+  const { clients, charges, restorePoints, restorePointName, setRestorePointName, isSavingPoint, handleCreateRestorePoint, handleDownloadRestorePoint, settings, copiedCode, importCodeInput, setImportCodeInput, handleCopyBackupCode, handleExportJSON, handleImportFromText, handleFileUpload, onSync, isSyncing, syncError, pointToDelete, pointToRestore, handleConfirmDelete, handleConfirmRestore, setPointToDelete, setPointToRestore, externalRestoreInput, setExternalRestoreInput, handleExternalFileUpload, handleApplyExternalRestore, isApplyingExternal } = props;
+
+  const detectedExternal = React.useMemo(() => {
+    return parseExternalRestoreData(externalRestoreInput);
+  }, [externalRestoreInput]);
   return (
     <>
       {/* 2. Pontos de Restauração do Sistema */}
@@ -69,6 +76,81 @@ export const SettingsDataSections: React.FC<{
               </button>
             </div>
           </div>
+
+          {/* Restauração Externa no Ponto de Restauração (Igual ao Backup) */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <FileUp className="w-4 h-4 text-blue-600" />
+                  Restauração Externa (Arquivo .json ou Código)
+                </h3>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">
+                  Cole o código do ponto de restauração, JSON exportado ou carregue um arquivo .json para restaurar e salvar no histórico.
+                </p>
+              </div>
+              {detectedExternal && (
+                <span className="px-2.5 py-1 bg-emerald-100 border border-emerald-300 text-emerald-800 rounded-full text-[11px] font-bold font-mono flex items-center gap-1 animate-in fade-in">
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  {detectedExternal.clients.length} clientes • {detectedExternal.charges.length} cobranças identificadas
+                  {detectedExternal.name ? ` (${detectedExternal.name})` : ''}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <textarea
+                rows={3}
+                value={externalRestoreInput}
+                onChange={(e) => setExternalRestoreInput(e.target.value)}
+                placeholder="Cole o código de backup, JSON ou ponto de restauração externo aqui..."
+                disabled={isApplyingExternal}
+                className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs font-mono text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <label className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer transition-colors shadow-2xs active:scale-95">
+                  <Upload className="w-4 h-4 text-blue-600" />
+                  Carregar Arquivo .json
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleExternalFileUpload}
+                    disabled={isApplyingExternal}
+                    className="hidden"
+                  />
+                </label>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => handleApplyExternalRestore('point')}
+                    disabled={isApplyingExternal || !externalRestoreInput.trim()}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all shadow-2xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                    title="Apenas adiciona ao histórico de pontos de restauração sem substituir os dados atuais"
+                  >
+                    <BookmarkPlus className="w-3.5 h-3.5 text-slate-300" />
+                    Salvar no Histórico de Pontos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyExternalRestore('both')}
+                    disabled={isApplyingExternal || !externalRestoreInput.trim()}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                    title="Restaura os dados no sistema e salva o ponto no histórico"
+                  >
+                    {isApplyingExternal ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    )}
+                    {isApplyingExternal ? 'Restaurando...' : 'Restaurar e Aplicar Dados'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* List of Restore Points */}
           <div className="space-y-3">
             <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -85,6 +167,7 @@ export const SettingsDataSections: React.FC<{
               <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
                 {restorePoints.map((point) => {
                   const isAuto = point.name.toLowerCase().includes('automático') || point.name.toLowerCase().includes('automatico');
+                  const isExternal = point.id.startsWith('rp_ext_') || point.name.toLowerCase().includes('externo');
                   return (
                     <div
                       key={point.id}
@@ -93,7 +176,11 @@ export const SettingsDataSections: React.FC<{
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-xs text-slate-800">{point.name}</span>
-                          {isAuto ? (
+                          {isExternal ? (
+                            <span className="text-[10px] bg-purple-100 text-purple-800 border border-purple-200/80 px-2 py-0.5 rounded-full font-mono font-bold">
+                              Externo
+                            </span>
+                          ) : isAuto ? (
                             <span className="text-[10px] bg-amber-100 text-amber-800 border border-amber-200/80 px-2 py-0.5 rounded-full font-mono font-bold">
                               Automático (1/dia)
                             </span>
