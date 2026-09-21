@@ -6,6 +6,10 @@ import './index.css';
 
 // Register Service Worker for mobile native status bar notifications
 import { logger } from './lib/logger';
+import { initBackgroundStability } from './utils/backgroundPersistence';
+
+initBackgroundStability();
+
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((reg) => {

@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Users, Calendar, AlertTriangle, AlertCircle, Layers, ChevronRight, ShieldCheck } from 'lucide-react';
 import { AppData, SectionType, Client, Charge } from '../types';
-import { getDaysUntilDue, isClientActive } from '../utils/formatters';
+import { getDaysUntilDue, isClientActive, getOverdueChargeClientIds } from '../utils/formatters';
 import { DueTabFilter } from './DueView';
 
 interface DashboardViewProps {
@@ -17,58 +17,95 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   data,
   onNavigate,
 }) => {
-  const clients = Array.isArray(data?.clients) ? data.clients : [];
-  const charges = Array.isArray(data?.charges) ? data.charges : [];
+  const clients = useMemo(() => (Array.isArray(data?.clients) ? data.clients : []), [data?.clients]);
+  const charges = useMemo(() => (Array.isArray(data?.charges) ? data.charges : []), [data?.charges]);
 
-  // Clientes ativos: somente clientes que ainda não venceram (vencimento hoje ou futuro, e sem pendências vencidas)
-  const activeClientsCount = clients.filter((cl) => isClientActive(cl, charges)).length;
+  // Fast client map lookup & precomputed overdue charges
+  const metrics = useMemo(() => {
+    const clientMap = new Map<string, Client>();
+    for (let i = 0; i < clients.length; i++) {
+      const c = clients[i];
+      if (c && c.id) clientMap.set(c.id, c);
+    }
 
-  // Gather all pending charges + client due dates
-  const chargeClientIds = new Set(charges.filter((c) => !c.paid).map((c) => c.clientId));
-  const clientCharges: Charge[] = clients
-    .filter((cl) => cl.dueDate && !chargeClientIds.has(cl.id))
-    .map((cl) => {
-      const fullDt = cl.dueDate!;
-      const [datePart, timePart] = fullDt.includes('T') ? fullDt.split('T') : [fullDt, ''];
-      return {
-        id: `client-charge-${cl.id}`,
-        clientId: cl.id,
-        amount: 0,
-        dueDate: datePart,
-        dueTime: timePart || undefined,
-        paid: false,
-        note: 'Vencimento do Cliente',
-        createdAt: cl.createdAt,
-      };
-    });
+    const overdueChargeClientIds = getOverdueChargeClientIds(charges);
 
-  const allPendingCharges = [...charges.filter((c) => !c.paid), ...clientCharges];
+    // Clientes ativos: verificação O(1) com conjunto pré-computado
+    let activeClientsCount = 0;
+    for (let i = 0; i < clients.length; i++) {
+      if (isClientActive(clients[i], charges, overdueChargeClientIds)) {
+        activeClientsCount++;
+      }
+    }
 
-  const getItemDaysDiff = (ch: Charge): number | null => {
-    const client = clients.find((c) => c.id === ch.clientId);
-    const dateToEvaluate = ch.dueDate || client?.dueDate?.split('T')[0];
-    return getDaysUntilDue(dateToEvaluate);
-  };
+    // Pending charges + clients with dueDate who don't have an unpaid charge
+    const chargeClientIds = new Set<string>();
+    const pendingCharges: Charge[] = [];
+    for (let i = 0; i < charges.length; i++) {
+      const c = charges[i];
+      if (!c.paid) {
+        pendingCharges.push(c);
+        chargeClientIds.add(c.clientId);
+      }
+    }
 
-  // Due today count (0 days)
-  const dueTodayCount = allPendingCharges.filter((c) => getItemDaysDiff(c) === 0).length;
+    const virtualCharges: Charge[] = [];
+    for (let i = 0; i < clients.length; i++) {
+      const cl = clients[i];
+      if (cl.dueDate && !chargeClientIds.has(cl.id)) {
+        const fullDt = cl.dueDate;
+        const [datePart, timePart] = fullDt.includes('T') ? fullDt.split('T') : [fullDt, ''];
+        virtualCharges.push({
+          id: `client-charge-${cl.id}`,
+          clientId: cl.id,
+          amount: 0,
+          dueDate: datePart,
+          dueTime: timePart || undefined,
+          paid: false,
+          note: 'Vencimento do Cliente',
+          createdAt: cl.createdAt,
+        });
+      }
+    }
 
-  // Due with 1 day late (1 dia de atraso)
-  const dueLate1DayCount = allPendingCharges.filter((c) => getItemDaysDiff(c) === -1).length;
+    const allPendingCharges = [...pendingCharges, ...virtualCharges];
 
-  // Overdue count (all late)
-  const overdueCount = allPendingCharges.filter((c) => {
-    const diff = getItemDaysDiff(c);
-    return diff !== null && diff < 0;
-  }).length;
+    let dueTodayCount = 0;
+    let dueLate1DayCount = 0;
+    let overdueCount = 0;
+    let overdue5DaysCount = 0;
 
-  // Overdue > 5 days count (+5 dias de atraso)
-  const overdue5DaysCount = allPendingCharges.filter((c) => {
-    const diff = getItemDaysDiff(c);
-    return diff !== null && diff <= -5;
-  }).length;
+    // Single-pass aggregation of all status metrics
+    for (let i = 0; i < allPendingCharges.length; i++) {
+      const ch = allPendingCharges[i];
+      const client = clientMap.get(ch.clientId);
+      const dateToEvaluate = ch.dueDate || (client?.dueDate ? (client.dueDate.includes('T') ? client.dueDate.split('T')[0] : client.dueDate) : undefined);
+      const diff = getDaysUntilDue(dateToEvaluate);
 
-  const totalPendingCount = allPendingCharges.length;
+      if (diff === 0) dueTodayCount++;
+      if (diff === -1) dueLate1DayCount++;
+      if (diff !== null && diff < 0) overdueCount++;
+      if (diff !== null && diff <= -5) overdue5DaysCount++;
+    }
+
+    return {
+      activeClientsCount,
+      dueTodayCount,
+      dueLate1DayCount,
+      overdueCount,
+      overdue5DaysCount,
+      totalPendingCount: allPendingCharges.length,
+    };
+  }, [clients, charges]);
+
+  const {
+    activeClientsCount,
+    dueTodayCount,
+    dueLate1DayCount,
+    overdueCount,
+    overdue5DaysCount,
+    totalPendingCount,
+  } = metrics;
 
   return (
     <div className="space-y-5 sm:space-y-6">

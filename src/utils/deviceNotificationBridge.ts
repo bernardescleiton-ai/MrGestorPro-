@@ -60,11 +60,21 @@ export async function requestDeviceNotificationPermission(): Promise<boolean> {
   }
 }
 
+let sharedAudioCtx: AudioContext | null = null;
+let lastSoundPlayTime = 0;
+
 export function playNotificationSound(): void {
+  const nowMs = Date.now();
+  if (nowMs - lastSoundPlayTime < 3000) return; // Throttle to prevent audio thread lock
+  lastSoundPlayTime = nowMs;
+
   try {
     const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      sharedAudioCtx = new AudioContextClass();
+    }
+    const ctx = sharedAudioCtx;
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }

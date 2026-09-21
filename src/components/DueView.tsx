@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Bell, RefreshCw, Calendar, Clock, AlertTriangle, AlertCircle, Search, CheckCircle2, MessageSquare, Phone, Trash2, CheckSquare, Square, Edit } from 'lucide-react';
+import { Bell, RefreshCw, Calendar, Clock, AlertTriangle, AlertCircle, Search, CheckCircle2, MessageSquare, Phone, Trash2, CheckSquare, Square, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Client, Charge, CompanySettings } from '../types';
 import { dateBR, formatDateTimeBR, getChargeStatus, getDaysUntilDue, getClientStatusBadge, openWhatsApp } from '../utils/formatters';
 
@@ -89,77 +89,63 @@ export const DueView: React.FC<DueViewProps> = ({
     return [...safeCharges.filter((c) => !c.paid), ...clientCharges];
   }, [safeCharges, clientCharges]);
 
-  // Helper to compute day difference for a charge/client
+  const [duePage, setDuePage] = useState<number>(1);
+  const [duePageSize, setDuePageSize] = useState<number | 'all'>(30);
+
+  // Helper to compute day difference for a charge/client using fast O(1) map
   const getItemDaysDiff = (ch: Charge): number | null => {
-    const client = getClient(ch.clientId);
+    const client = clientMap.get(ch.clientId);
     const dateToEvaluate = ch.dueDate || client?.dueDate?.split('T')[0];
     return getDaysUntilDue(dateToEvaluate);
   };
 
-  // Pre-calculate counts for each tab
-  const todayCount = useMemo(() => {
-    return allPendingItems.filter((ch) => getItemDaysDiff(ch) === 0).length;
-  }, [allPendingItems, clientMap]);
+  // Pre-calculate all counts in a single O(N) pass
+  const counts = useMemo(() => {
+    let today = 0;
+    let in3Days = 0;
+    let late1Day = 0;
+    let overdue5Days = 0;
+    let allLate = 0;
 
-  const in3DaysCount = useMemo(() => {
-    return allPendingItems.filter((ch) => {
+    for (let i = 0; i < allPendingItems.length; i++) {
+      const ch = allPendingItems[i];
       const diff = getItemDaysDiff(ch);
-      return diff !== null && diff >= 1 && diff <= 3;
-    }).length;
+      if (diff === 0) today++;
+      if (diff !== null && diff >= 1 && diff <= 3) in3Days++;
+      if (diff === -1) late1Day++;
+      if (diff !== null && diff <= -5) overdue5Days++;
+      if (diff !== null && diff < 0) allLate++;
+    }
+
+    return { today, in3Days, late1Day, overdue5Days, allLate };
   }, [allPendingItems, clientMap]);
 
-  const late1DayCount = useMemo(() => {
-    return allPendingItems.filter((ch) => getItemDaysDiff(ch) === -1).length;
-  }, [allPendingItems, clientMap]);
-
-  const overdue5DaysCount = useMemo(() => {
-    return allPendingItems.filter((ch) => {
-      const diff = getItemDaysDiff(ch);
-      return diff !== null && diff <= -5;
-    }).length;
-  }, [allPendingItems, clientMap]);
-
-  const allLateCount = useMemo(() => {
-    return allPendingItems.filter((ch) => {
-      const diff = getItemDaysDiff(ch);
-      return diff !== null && diff < 0;
-    }).length;
-  }, [allPendingItems, clientMap]);
-
+  const { today: todayCount, in3Days: in3DaysCount, late1Day: late1DayCount, overdue5Days: overdue5DaysCount, allLate: allLateCount } = counts;
   const totalAllCount = allPendingItems.length;
 
   // Filter items based on active tab
   const tabFilteredItems = useMemo(() => {
     return allPendingItems.filter((ch) => {
       const diff = getItemDaysDiff(ch);
-      if (activeTab === 'today') {
-        return diff === 0;
-      }
-      if (activeTab === 'in_3_days') {
-        return diff !== null && diff >= 1 && diff <= 3;
-      }
-      if (activeTab === 'late_1_day') {
-        return diff === -1;
-      }
-      if (activeTab === 'overdue_5_days') {
-        return diff !== null && diff <= -5;
-      }
-      if (activeTab === 'all_late') {
-        return diff !== null && diff < 0;
-      }
+      if (activeTab === 'today') return diff === 0;
+      if (activeTab === 'in_3_days') return diff !== null && diff >= 1 && diff <= 3;
+      if (activeTab === 'late_1_day') return diff === -1;
+      if (activeTab === 'overdue_5_days') return diff !== null && diff <= -5;
+      if (activeTab === 'all_late') return diff !== null && diff < 0;
       return true; // 'all'
     });
   }, [allPendingItems, activeTab, clientMap]);
 
   // Apply search query filter
   const displayedItems = useMemo(() => {
+    const term = search.trim().toLowerCase();
     return tabFilteredItems
       .filter((ch) => {
-        if (!search.trim()) return true;
-        const client = getClient(ch.clientId);
-        const nameMatch = client?.name?.toLowerCase().includes(search.toLowerCase());
-        const phoneMatch = client?.phone?.includes(search);
-        const noteMatch = ch.note?.toLowerCase().includes(search.toLowerCase());
+        if (!term) return true;
+        const client = clientMap.get(ch.clientId);
+        const nameMatch = client?.name?.toLowerCase().includes(term);
+        const phoneMatch = client?.phone?.includes(term);
+        const noteMatch = ch.note?.toLowerCase().includes(term);
         return nameMatch || phoneMatch || noteMatch;
       })
       .sort((a, b) => {
@@ -168,6 +154,21 @@ export const DueView: React.FC<DueViewProps> = ({
         return dtA.localeCompare(dtB);
       });
   }, [tabFilteredItems, search, clientMap]);
+
+  // Reset page on search or tab change
+  useEffect(() => {
+    setDuePage(1);
+  }, [activeTab, search, duePageSize]);
+
+  // Paginated items
+  const totalDuePages = duePageSize === 'all' ? 1 : Math.max(1, Math.ceil(displayedItems.length / duePageSize));
+  const currentDuePage = Math.min(duePage, totalDuePages);
+
+  const paginatedDisplayedItems = useMemo(() => {
+    if (duePageSize === 'all') return displayedItems;
+    const startIndex = (currentDuePage - 1) * duePageSize;
+    return displayedItems.slice(startIndex, startIndex + duePageSize);
+  }, [displayedItems, currentDuePage, duePageSize]);
 
   // Unique clients available in the current displayed items
   const displayedClientIds = useMemo(() => {
@@ -528,8 +529,8 @@ export const DueView: React.FC<DueViewProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {displayedItems.map((ch) => {
-                const client = getClient(ch.clientId);
+              {paginatedDisplayedItems.map((ch) => {
+                const client = clientMap.get(ch.clientId);
                 const daysDiff = getItemDaysDiff(ch);
                 const statusBadge = getClientStatusBadge(ch.dueDate + (ch.dueTime ? `T${ch.dueTime}` : ''));
                 const isSelected = client ? selectedClientIds.includes(client.id) : false;
@@ -652,6 +653,69 @@ export const DueView: React.FC<DueViewProps> = ({
             </div>
           )}
         </div>
+
+        {/* Due Pagination Footer */}
+        {displayedItems.length > 0 && (
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+            <div className="flex items-center gap-2">
+              <span>
+                Mostrando{' '}
+                <strong className="text-slate-900 font-semibold">
+                  {duePageSize === 'all' ? '1' : (currentDuePage - 1) * duePageSize + 1}
+                </strong>{' '}
+                a{' '}
+                <strong className="text-slate-900 font-semibold">
+                  {duePageSize === 'all' ? displayedItems.length : Math.min(currentDuePage * duePageSize, displayedItems.length)}
+                </strong>{' '}
+                de <strong className="text-slate-900 font-semibold">{displayedItems.length}</strong> registros
+              </span>
+
+              <div className="flex items-center gap-1.5 ml-2 border-l border-slate-300 pl-3">
+                <span className="text-slate-500">Por página:</span>
+                <select
+                  value={duePageSize}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDuePageSize(v === 'all' ? 'all' : Number(v));
+                  }}
+                  className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-700 font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value="all">Todos</option>
+                </select>
+              </div>
+            </div>
+
+            {duePageSize !== 'all' && totalDuePages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setDuePage((p) => Math.max(1, p - 1))}
+                  disabled={currentDuePage <= 1}
+                  className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-1 px-2">
+                  <span className="font-semibold text-slate-800">{currentDuePage}</span>
+                  <span className="text-slate-400">/</span>
+                  <span className="text-slate-600">{totalDuePages}</span>
+                </div>
+                <button
+                  onClick={() => setDuePage((p) => Math.min(totalDuePages, p + 1))}
+                  disabled={currentDuePage >= totalDuePages}
+                  className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Próxima página"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -196,20 +196,24 @@ export function subscribeToAppData(
   let logsLoaded = false;
   let settingsLoaded = false;
 
+  let emitDebounceTimer: any = null;
   const emit = () => {
     if (!clientsLoaded || !chargesLoaded || !logsLoaded || !settingsLoaded) {
       return;
     }
-    onData(
-      {
-        clients,
-        charges,
-        settings,
-        sentLogs,
-        updatedAt,
-      },
-      true
-    );
+    if (emitDebounceTimer) clearTimeout(emitDebounceTimer);
+    emitDebounceTimer = setTimeout(() => {
+      onData(
+        {
+          clients,
+          charges,
+          settings,
+          sentLogs,
+          updatedAt,
+        },
+        true
+      );
+    }, 40);
   };
 
   const handleSnapshotError = (err: any) => {
@@ -232,8 +236,11 @@ export function subscribeToAppData(
     collection(db, 'clients'),
     (snapshot) => {
       clients = [];
+      cloudClientsCache.clear();
       snapshot.forEach((d) => {
-        clients.push({ id: d.id, ...d.data() } as Client);
+        const clientItem = { id: d.id, ...d.data() } as Client;
+        clients.push(clientItem);
+        cloudClientsCache.set(clientItem.id, JSON.stringify(clientItem));
       });
       clientsLoaded = true;
       emit();
@@ -245,8 +252,11 @@ export function subscribeToAppData(
     collection(db, 'charges'),
     (snapshot) => {
       charges = [];
+      cloudChargesCache.clear();
       snapshot.forEach((d) => {
-        charges.push({ id: d.id, ...d.data() } as Charge);
+        const chargeItem = { id: d.id, ...d.data() } as Charge;
+        charges.push(chargeItem);
+        cloudChargesCache.set(chargeItem.id, JSON.stringify(chargeItem));
       });
       chargesLoaded = true;
       emit();
@@ -258,8 +268,11 @@ export function subscribeToAppData(
     collection(db, 'sentLogs'),
     (snapshot) => {
       sentLogs = [];
+      cloudLogsCache.clear();
       snapshot.forEach((d) => {
-        sentLogs.push({ id: d.id, ...d.data() } as SentMessageLog);
+        const logItem = { id: d.id, ...d.data() } as SentMessageLog;
+        sentLogs.push(logItem);
+        cloudLogsCache.set(logItem.id, JSON.stringify(logItem));
       });
       logsLoaded = true;
       emit();
@@ -273,7 +286,10 @@ export function subscribeToAppData(
       snapshot.forEach((d) => {
         if (d.id === SETTINGS_DOC_ID) {
           const raw = d.data();
-          if (raw.settings) settings = { ...initialAppData.settings, ...raw.settings };
+          if (raw.settings) {
+            settings = { ...initialAppData.settings, ...raw.settings };
+            cloudSettingsHash = JSON.stringify(settings);
+          }
           if (typeof raw.updatedAt === 'number') updatedAt = raw.updatedAt;
         }
       });
@@ -284,12 +300,19 @@ export function subscribeToAppData(
   );
 
   return () => {
+    if (emitDebounceTimer) clearTimeout(emitDebounceTimer);
     unsubClients();
     unsubCharges();
     unsubLogs();
     unsubSettings();
   };
 }
+
+// In-memory cache of synced docs to prevent re-writing unchanged documents
+const cloudClientsCache = new Map<string, string>();
+const cloudChargesCache = new Map<string, string>();
+const cloudLogsCache = new Map<string, string>();
+let cloudSettingsHash = '';
 
 // Delete WhatsApp media from Cloud Firestore settings
 export async function deleteWhatsAppMediaFromCloud(): Promise<void> {
@@ -302,65 +325,122 @@ export async function deleteWhatsAppMediaFromCloud(): Promise<void> {
       },
       updatedAt: Date.now(),
     }, { merge: true });
+    cloudSettingsHash = '';
   } catch (err) {
     logger.warn('Notice deleting whatsappMedia in Firestore:', err);
   }
 }
 
-// Save AppData to Firestore
+// Save AppData to Firestore with granular delta-tracking
 export async function saveAppDataToFirestore(data: AppData): Promise<void> {
   if (isQuotaExhausted) {
     return;
   }
 
   try {
-    const batch = writeBatch(db);
+    // 1. Check settings
+    const settingsJson = JSON.stringify(data.settings || {});
+    const settingsChanged = cloudSettingsHash !== settingsJson;
 
-    // 1. Settings doc
-    const settingsRef = doc(db, 'app_settings', SETTINGS_DOC_ID);
-    const sanitizedSettings = sanitizeDataForFirestore({
-      settings: data.settings || {},
-      updatedAt: Date.now(),
-    });
-
-    // If whatsappMedia is not present in data.settings, overwrite completely so it is dropped
-    if (!data.settings?.whatsappMedia) {
-      if (sanitizedSettings?.settings) {
-        delete sanitizedSettings.settings.whatsappMedia;
-      }
-      batch.set(settingsRef, sanitizedSettings);
-    } else {
-      batch.set(settingsRef, sanitizedSettings, { merge: true });
-    }
-
-    // 2. Set/Update all current clients
+    // 2. Identify dirty clients
+    const dirtyClients: Client[] = [];
     for (const client of data.clients || []) {
       if (client && client.id) {
-        const clientRef = doc(db, 'clients', client.id);
-        const { id, ...rest } = client;
-        batch.set(clientRef, sanitizeDataForFirestore(rest), { merge: true });
+        const rawJson = JSON.stringify(client);
+        if (cloudClientsCache.get(client.id) !== rawJson) {
+          dirtyClients.push(client);
+        }
       }
     }
 
-    // 3. Set/Update all current charges
+    // 3. Identify dirty charges
+    const dirtyCharges: Charge[] = [];
     for (const charge of data.charges || []) {
       if (charge && charge.id) {
-        const chargeRef = doc(db, 'charges', charge.id);
-        const { id, ...rest } = charge;
-        batch.set(chargeRef, sanitizeDataForFirestore(rest), { merge: true });
+        const rawJson = JSON.stringify(charge);
+        if (cloudChargesCache.get(charge.id) !== rawJson) {
+          dirtyCharges.push(charge);
+        }
       }
     }
 
-    // 4. Set/Update all current logs
+    // 4. Identify dirty logs
+    const dirtyLogs: SentMessageLog[] = [];
     for (const log of data.sentLogs || []) {
       if (log && log.id) {
-        const logRef = doc(db, 'sentLogs', log.id);
-        const { id, ...rest } = log;
-        batch.set(logRef, sanitizeDataForFirestore(rest), { merge: true });
+        const rawJson = JSON.stringify(log);
+        if (cloudLogsCache.get(log.id) !== rawJson) {
+          dirtyLogs.push(log);
+        }
       }
     }
 
-    await batch.commit();
+    // If nothing changed, exit instantly (0 network operations, 0 delay!)
+    if (!settingsChanged && dirtyClients.length === 0 && dirtyCharges.length === 0 && dirtyLogs.length === 0) {
+      return;
+    }
+
+    // Commit dirty operations in batches of at most 400 (well within Firestore 500 limit)
+    let currentBatch = writeBatch(db);
+    let opCount = 0;
+
+    const commitCurrentBatch = async () => {
+      if (opCount > 0) {
+        await currentBatch.commit();
+        currentBatch = writeBatch(db);
+        opCount = 0;
+      }
+    };
+
+    if (settingsChanged) {
+      const settingsRef = doc(db, 'app_settings', SETTINGS_DOC_ID);
+      const sanitizedSettings = sanitizeDataForFirestore({
+        settings: data.settings || {},
+        updatedAt: Date.now(),
+      });
+
+      if (!data.settings?.whatsappMedia) {
+        if (sanitizedSettings?.settings) {
+          delete sanitizedSettings.settings.whatsappMedia;
+        }
+        currentBatch.set(settingsRef, sanitizedSettings);
+      } else {
+        currentBatch.set(settingsRef, sanitizedSettings, { merge: true });
+      }
+      opCount++;
+      cloudSettingsHash = settingsJson;
+    }
+
+    for (const client of dirtyClients) {
+      const clientRef = doc(db, 'clients', client.id);
+      const { id, ...rest } = client;
+      currentBatch.set(clientRef, sanitizeDataForFirestore(rest), { merge: true });
+      cloudClientsCache.set(client.id, JSON.stringify(client));
+      opCount++;
+      if (opCount >= 400) await commitCurrentBatch();
+    }
+
+    for (const charge of dirtyCharges) {
+      const chargeRef = doc(db, 'charges', charge.id);
+      const { id, ...rest } = charge;
+      currentBatch.set(chargeRef, sanitizeDataForFirestore(rest), { merge: true });
+      cloudChargesCache.set(charge.id, JSON.stringify(charge));
+      opCount++;
+      if (opCount >= 400) await commitCurrentBatch();
+    }
+
+    for (const log of dirtyLogs) {
+      const logRef = doc(db, 'sentLogs', log.id);
+      const { id, ...rest } = log;
+      currentBatch.set(logRef, sanitizeDataForFirestore(rest), { merge: true });
+      cloudLogsCache.set(log.id, JSON.stringify(log));
+      opCount++;
+      if (opCount >= 400) await commitCurrentBatch();
+    }
+
+    if (opCount > 0) {
+      await commitCurrentBatch();
+    }
   } catch (err: any) {
     const errorMsg = String(err?.message || err);
     if (errorMsg.includes('resource-exhausted') || errorMsg.includes('Quota exceeded') || err?.code === 'resource-exhausted') {
@@ -375,6 +455,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
 // Explicit deletion functions for user actions
 export async function deleteClientFromFirestore(clientId: string): Promise<void> {
   if (isQuotaExhausted || !clientId) return;
+  cloudClientsCache.delete(clientId);
   try {
     await deleteDoc(doc(db, 'clients', clientId));
   } catch (err: any) {
@@ -389,6 +470,9 @@ export async function deleteClientFromFirestore(clientId: string): Promise<void>
 
 export async function deleteClientsBatchFromFirestore(clientIds: string[]): Promise<void> {
   if (isQuotaExhausted || !clientIds || clientIds.length === 0) return;
+  for (const id of clientIds) {
+    if (id) cloudClientsCache.delete(id);
+  }
   try {
     const batch = writeBatch(db);
     for (const id of clientIds) {
@@ -409,6 +493,7 @@ export async function deleteClientsBatchFromFirestore(clientIds: string[]): Prom
 
 export async function deleteChargeFromFirestore(chargeId: string): Promise<void> {
   if (isQuotaExhausted || !chargeId) return;
+  cloudChargesCache.delete(chargeId);
   try {
     await deleteDoc(doc(db, 'charges', chargeId));
   } catch (err: any) {
@@ -423,6 +508,9 @@ export async function deleteChargeFromFirestore(chargeId: string): Promise<void>
 
 export async function deleteChargesBatchFromFirestore(chargeIds: string[]): Promise<void> {
   if (isQuotaExhausted || !chargeIds || chargeIds.length === 0) return;
+  for (const id of chargeIds) {
+    if (id) cloudChargesCache.delete(id);
+  }
   try {
     const batch = writeBatch(db);
     for (const id of chargeIds) {
@@ -443,6 +531,7 @@ export async function deleteChargesBatchFromFirestore(chargeIds: string[]): Prom
 
 export async function deleteSentLogFromFirestore(logId: string): Promise<void> {
   if (isQuotaExhausted || !logId) return;
+  cloudLogsCache.delete(logId);
   try {
     await deleteDoc(doc(db, 'sentLogs', logId));
   } catch (err: any) {
@@ -457,6 +546,9 @@ export async function deleteSentLogFromFirestore(logId: string): Promise<void> {
 
 export async function deleteSentLogsBatchFromFirestore(logIds: string[]): Promise<void> {
   if (isQuotaExhausted || !logIds || logIds.length === 0) return;
+  for (const id of logIds) {
+    if (id) cloudLogsCache.delete(id);
+  }
   try {
     const batch = writeBatch(db);
     for (const id of logIds) {

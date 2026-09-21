@@ -172,7 +172,8 @@ function checkClientDueNotification(ctx: ClientNotificationContext): boolean {
 
 interface ChargeNotificationContext {
   charge: Charge;
-  data: AppData;
+  client?: Client;
+  settings: CompanySettings;
   now: Date;
   today: Date;
   rules: NotificationRules;
@@ -181,13 +182,12 @@ interface ChargeNotificationContext {
 }
 
 function checkChargeDueNotification(ctx: ChargeNotificationContext): boolean {
-  const { charge, data, now, today, rules, todayNotifiedMap, onInAppAlert } = ctx;
+  const { charge, client, settings, now, today, rules, todayNotifiedMap, onInAppAlert } = ctx;
   if (charge.paid || !charge.dueDate || typeof charge.dueDate !== 'string') return false;
 
-  const client = data.clients.find((c) => c.id === charge.clientId);
   const clientName = client ? client.name : 'Cliente';
   const clientPhone = client ? client.phone : undefined;
-  const clientMessage = client ? getDefaultMessage(client, charge, data.settings) : '';
+  const clientMessage = client ? getDefaultMessage(client, charge, settings) : '';
 
   const [year, month, day] = charge.dueDate.split('-').map(Number);
   let updated = false;
@@ -270,19 +270,37 @@ export function checkAndTriggerDeviceNotifications(
   const todayNotifiedMap = getTodayNotifiedMap();
   let updatedLog = false;
 
-  // 1. CHECK CLIENTS DUE DATES
+  // Limit in-app toast to 1 per notification cycle to prevent UI render thrashing
+  let inAppAlertSent = false;
+  const throttledInAppAlert = onInAppAlert
+    ? (alert: InAppAlertPayload) => {
+        if (!inAppAlertSent) {
+          inAppAlertSent = true;
+          onInAppAlert(alert);
+        }
+      }
+    : undefined;
+
+  // Build client map once O(N)
+  const clientMap = new Map<string, Client>();
   if (data.clients && data.clients.length > 0) {
-    for (const client of data.clients) {
-      if (checkClientDueNotification({ client, settings: data.settings, now, today, rules, todayNotifiedMap, onInAppAlert })) {
+    for (let i = 0; i < data.clients.length; i++) {
+      const client = data.clients[i];
+      if (client && client.id) {
+        clientMap.set(client.id, client);
+      }
+      if (checkClientDueNotification({ client, settings: data.settings, now, today, rules, todayNotifiedMap, onInAppAlert: throttledInAppAlert })) {
         updatedLog = true;
       }
     }
   }
 
-  // 2. CHECK CHARGES DUE DATES
+  // 2. CHECK CHARGES DUE DATES WITH O(1) CLIENT LOOKUP
   if (data.charges && data.charges.length > 0) {
-    for (const charge of data.charges) {
-      if (checkChargeDueNotification({ charge, data, now, today, rules, todayNotifiedMap, onInAppAlert })) {
+    for (let i = 0; i < data.charges.length; i++) {
+      const charge = data.charges[i];
+      const client = charge.clientId ? clientMap.get(charge.clientId) : undefined;
+      if (checkChargeDueNotification({ charge, client, settings: data.settings, now, today, rules, todayNotifiedMap, onInAppAlert: throttledInAppAlert })) {
         updatedLog = true;
       }
     }

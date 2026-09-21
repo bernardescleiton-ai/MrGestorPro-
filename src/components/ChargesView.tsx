@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, Trash2, MessageSquare, CheckCircle2, Send, Clock, UserCheck, RefreshCw, Calendar, Phone } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Search, Trash2, MessageSquare, CheckCircle2, Send, Clock, UserCheck, RefreshCw, Calendar, Phone, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Client, Charge, CompanySettings, SentMessageLog } from '../types';
 import { dateBR, formatDateTimeBR, getChargeStatus } from '../utils/formatters';
 
@@ -37,65 +37,135 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
   const [selectedChargeIds, setSelectedChargeIds] = useState<string[]>([]);
+  const [logsPage, setLogsPage] = useState<number>(1);
+  const [logsPageSize, setLogsPageSize] = useState<number | 'all'>(25);
+  const [chargesPage, setChargesPage] = useState<number>(1);
+  const [chargesPageSize, setChargesPageSize] = useState<number | 'all'>(25);
 
-  const safeClients = Array.isArray(clients) ? clients : [];
-  const safeCharges = Array.isArray(charges) ? charges : [];
-  const safeSentLogs = Array.isArray(sentLogs) ? sentLogs : [];
+  const safeClients = useMemo(() => (Array.isArray(clients) ? clients : []), [clients]);
+  const safeCharges = useMemo(() => (Array.isArray(charges) ? charges : []), [charges]);
+  const safeSentLogs = useMemo(() => (Array.isArray(sentLogs) ? sentLogs : []), [sentLogs]);
 
-  const getClient = (clientId: string) => safeClients.find((c) => c.id === clientId);
+  // Fast client lookup map O(1)
+  const clientMap = useMemo(() => {
+    const map = new Map<string, Client>();
+    for (let i = 0; i < safeClients.length; i++) {
+      const c = safeClients[i];
+      if (c && c.id) map.set(c.id, c);
+    }
+    return map;
+  }, [safeClients]);
+
+  const getClient = (clientId: string) => clientMap.get(clientId);
 
   // Filter out any IDs that no longer exist
-  const validLogIds = new Set(safeSentLogs.map((l) => l.id));
+  const validLogIds = useMemo(() => new Set(safeSentLogs.map((l) => l.id)), [safeSentLogs]);
   const activeSelectedLogIds = selectedLogIds.filter((id) => validLogIds.has(id));
 
-  const validChargeIds = new Set(safeCharges.map((c) => c.id));
+  const validChargeIds = useMemo(() => new Set(safeCharges.map((c) => c.id)), [safeCharges]);
   const activeSelectedChargeIds = selectedChargeIds.filter((id) => validChargeIds.has(id));
 
-  // Compute stats
-  const totalSentMessages = safeSentLogs.length + safeCharges.filter((c) => c.messageSent && !safeSentLogs.some((l) => l.chargeId === c.id)).length;
-  
-  const notifiedClientsCount = new Set([
-    ...safeSentLogs.map((l) => l.clientId),
-    ...safeCharges.filter((c) => c.messageSent).map((c) => c.clientId),
-  ]).size;
+  // Compute stats in a single fast pass with Sets
+  const stats = useMemo(() => {
+    const sentLogChargeIds = new Set<string>();
+    const notifiedClientIds = new Set<string>();
+    const todayIso = new Date().toISOString().slice(0, 10);
+    let sentToday = 0;
 
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const sentTodayCount = safeSentLogs.filter((l) => l.sentAt && l.sentAt.slice(0, 10) === todayIso).length +
-    safeCharges.filter((c) => c.messageSentAt && c.messageSentAt.slice(0, 10) === todayIso).length;
+    for (let i = 0; i < safeSentLogs.length; i++) {
+      const l = safeSentLogs[i];
+      if (l.chargeId) sentLogChargeIds.add(l.chargeId);
+      if (l.clientId) notifiedClientIds.add(l.clientId);
+      if (l.sentAt && l.sentAt.slice(0, 10) === todayIso) sentToday++;
+    }
 
-  const pendingMessageCount = safeCharges.filter((c) => !c.messageSent && !c.paid).length;
+    let chargesMessageSentCount = 0;
+    let pendingMessageCount = 0;
+
+    for (let i = 0; i < safeCharges.length; i++) {
+      const c = safeCharges[i];
+      if (c.messageSent) {
+        if (!sentLogChargeIds.has(c.id)) chargesMessageSentCount++;
+        if (c.clientId) notifiedClientIds.add(c.clientId);
+        if (c.messageSentAt && c.messageSentAt.slice(0, 10) === todayIso) sentToday++;
+      }
+      if (!c.messageSent && !c.paid) {
+        pendingMessageCount++;
+      }
+    }
+
+    return {
+      totalSentMessages: safeSentLogs.length + chargesMessageSentCount,
+      notifiedClientsCount: notifiedClientIds.size,
+      sentTodayCount: sentToday,
+      pendingMessageCount,
+    };
+  }, [safeSentLogs, safeCharges]);
+
+  const { totalSentMessages, notifiedClientsCount, sentTodayCount, pendingMessageCount } = stats;
 
   // Filter sent logs
-  const filteredSentLogs = safeSentLogs.filter((log) => {
-    const term = search.toLowerCase();
-    return (
-      (log.clientName || '').toLowerCase().includes(term) ||
-      (log.phone || '').includes(term) ||
-      (log.note && log.note.toLowerCase().includes(term)) ||
-      (log.messageText && log.messageText.toLowerCase().includes(term))
-    );
-  }).sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+  const filteredSentLogs = useMemo(() => {
+    const term = search.toLowerCase().trim();
+    return safeSentLogs.filter((log) => {
+      if (!term) return true;
+      return (
+        (log.clientName || '').toLowerCase().includes(term) ||
+        (log.phone || '').includes(term) ||
+        (log.note && log.note.toLowerCase().includes(term)) ||
+        (log.messageText && log.messageText.toLowerCase().includes(term))
+      );
+    }).sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+  }, [safeSentLogs, search]);
 
   // Filter all charges
-  const filteredCharges = safeCharges
-    .filter((ch) => {
-      const client = getClient(ch.clientId);
-      const clientName = client ? client.name.toLowerCase() : '';
-      const matchesSearch =
-        clientName.includes(search.toLowerCase()) ||
-        (ch.note && ch.note.toLowerCase().includes(search.toLowerCase()));
+  const filteredCharges = useMemo(() => {
+    const term = search.toLowerCase().trim();
+    return safeCharges
+      .filter((ch) => {
+        const client = clientMap.get(ch.clientId);
+        const clientName = client ? client.name.toLowerCase() : '';
+        if (term) {
+          const matchesSearch = clientName.includes(term) || (ch.note && ch.note.toLowerCase().includes(term));
+          if (!matchesSearch) return false;
+        }
 
-      const st = getChargeStatus(ch);
-      let matchesFilter = true;
-      if (filterStatus === 'sent') matchesFilter = !!ch.messageSent;
-      else if (filterStatus === 'unsent') matchesFilter = !ch.messageSent;
-      else if (filterStatus === 'pending') matchesFilter = st === 'pending';
-      else if (filterStatus === 'paid') matchesFilter = st === 'paid';
-      else if (filterStatus === 'late') matchesFilter = st === 'late';
+        const st = getChargeStatus(ch);
+        let matchesFilter = true;
+        if (filterStatus === 'sent') matchesFilter = !!ch.messageSent;
+        else if (filterStatus === 'unsent') matchesFilter = !ch.messageSent;
+        else if (filterStatus === 'pending') matchesFilter = st === 'pending';
+        else if (filterStatus === 'paid') matchesFilter = st === 'paid';
+        else if (filterStatus === 'late') matchesFilter = st === 'late';
 
-      return matchesSearch && matchesFilter;
-    })
-    .sort((a, b) => (b.dueDate || '').localeCompare(a.dueDate || ''));
+        return matchesFilter;
+      })
+      .sort((a, b) => (b.dueDate || '').localeCompare(a.dueDate || ''));
+  }, [safeCharges, clientMap, search, filterStatus]);
+
+  // Reset pagination on search or tab change
+  useEffect(() => {
+    setLogsPage(1);
+    setChargesPage(1);
+  }, [search, filterStatus, activeTab]);
+
+  // Paginated logs
+  const totalLogsPages = logsPageSize === 'all' ? 1 : Math.max(1, Math.ceil(filteredSentLogs.length / logsPageSize));
+  const currentLogsPage = Math.min(logsPage, totalLogsPages);
+  const paginatedSentLogs = useMemo(() => {
+    if (logsPageSize === 'all') return filteredSentLogs;
+    const start = (currentLogsPage - 1) * logsPageSize;
+    return filteredSentLogs.slice(start, start + logsPageSize);
+  }, [filteredSentLogs, currentLogsPage, logsPageSize]);
+
+  // Paginated charges
+  const totalChargesPages = chargesPageSize === 'all' ? 1 : Math.max(1, Math.ceil(filteredCharges.length / chargesPageSize));
+  const currentChargesPage = Math.min(chargesPage, totalChargesPages);
+  const paginatedCharges = useMemo(() => {
+    if (chargesPageSize === 'all') return filteredCharges;
+    const start = (currentChargesPage - 1) * chargesPageSize;
+    return filteredCharges.slice(start, start + chargesPageSize);
+  }, [filteredCharges, currentChargesPage, chargesPageSize]);
 
   // Select all handlers
   const handleSelectAllLogs = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -351,7 +421,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredSentLogs.map((log) => {
+                  {paginatedSentLogs.map((log) => {
                     const client = getClient(log.clientId);
                     const isSelected = activeSelectedLogIds.includes(log.id);
                     return (
@@ -423,6 +493,69 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                 </tbody>
               </table>
             )}
+
+            {/* Pagination for Logs */}
+            {filteredSentLogs.length > 0 && (
+              <div className="px-4 py-3 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <span>
+                    Mostrando{' '}
+                    <strong className="text-slate-900 font-semibold">
+                      {logsPageSize === 'all' ? '1' : (currentLogsPage - 1) * logsPageSize + 1}
+                    </strong>{' '}
+                    a{' '}
+                    <strong className="text-slate-900 font-semibold">
+                      {logsPageSize === 'all' ? filteredSentLogs.length : Math.min(currentLogsPage * logsPageSize, filteredSentLogs.length)}
+                    </strong>{' '}
+                    de <strong className="text-slate-900 font-semibold">{filteredSentLogs.length}</strong> mensagens
+                  </span>
+
+                  <div className="flex items-center gap-1.5 ml-2 border-l border-slate-300 pl-3">
+                    <span className="text-slate-500">Por página:</span>
+                    <select
+                      value={logsPageSize}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setLogsPageSize(v === 'all' ? 'all' : Number(v));
+                      }}
+                      className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-700 font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                    >
+                      <option value={15}>15</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value="all">Todos</option>
+                    </select>
+                  </div>
+                </div>
+
+                {logsPageSize !== 'all' && totalLogsPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setLogsPage((p) => Math.max(1, p - 1))}
+                      disabled={currentLogsPage <= 1}
+                      className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="Página anterior"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-1 px-2">
+                      <span className="font-semibold text-slate-800">{currentLogsPage}</span>
+                      <span className="text-slate-400">/</span>
+                      <span className="text-slate-600">{totalLogsPages}</span>
+                    </div>
+                    <button
+                      onClick={() => setLogsPage((p) => Math.min(totalLogsPages, p + 1))}
+                      disabled={currentLogsPage >= totalLogsPages}
+                      className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="Próxima página"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -455,7 +588,7 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredCharges.map((ch) => {
+                  {paginatedCharges.map((ch) => {
                     const client = getClient(ch.clientId);
                     const st = getChargeStatus(ch);
                     const isSelected = activeSelectedChargeIds.includes(ch.id);
@@ -571,6 +704,69 @@ export const ChargesView: React.FC<ChargesViewProps> = ({
                   })}
                 </tbody>
               </table>
+            )}
+
+            {/* Pagination for Charges */}
+            {filteredCharges.length > 0 && (
+              <div className="px-4 py-3 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+                <div className="flex items-center gap-2">
+                  <span>
+                    Mostrando{' '}
+                    <strong className="text-slate-900 font-semibold">
+                      {chargesPageSize === 'all' ? '1' : (currentChargesPage - 1) * chargesPageSize + 1}
+                    </strong>{' '}
+                    a{' '}
+                    <strong className="text-slate-900 font-semibold">
+                      {chargesPageSize === 'all' ? filteredCharges.length : Math.min(currentChargesPage * chargesPageSize, filteredCharges.length)}
+                    </strong>{' '}
+                    de <strong className="text-slate-900 font-semibold">{filteredCharges.length}</strong> vencimentos
+                  </span>
+
+                  <div className="flex items-center gap-1.5 ml-2 border-l border-slate-300 pl-3">
+                    <span className="text-slate-500">Por página:</span>
+                    <select
+                      value={chargesPageSize}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setChargesPageSize(v === 'all' ? 'all' : Number(v));
+                      }}
+                      className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-700 font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                    >
+                      <option value={15}>15</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value="all">Todos</option>
+                    </select>
+                  </div>
+                </div>
+
+                {chargesPageSize !== 'all' && totalChargesPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setChargesPage((p) => Math.max(1, p - 1))}
+                      disabled={currentChargesPage <= 1}
+                      className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="Página anterior"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-1 px-2">
+                      <span className="font-semibold text-slate-800">{currentChargesPage}</span>
+                      <span className="text-slate-400">/</span>
+                      <span className="text-slate-600">{totalChargesPages}</span>
+                    </div>
+                    <button
+                      onClick={() => setChargesPage((p) => Math.min(totalChargesPages, p + 1))}
+                      disabled={currentChargesPage >= totalChargesPages}
+                      className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="Próxima página"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

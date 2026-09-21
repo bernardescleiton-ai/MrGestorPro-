@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Phone, Mail, FileText, Edit, Trash2, History, MessageSquare, Sparkles, CheckSquare, Square, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Check, Pencil, Users, ShieldCheck, AlertTriangle, X } from 'lucide-react';
+import { Plus, Search, Phone, Mail, FileText, Edit, Trash2, History, MessageSquare, Sparkles, CheckSquare, Square, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Check, Pencil, Users, ShieldCheck, AlertTriangle, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Client, Charge } from '../types';
-import { formatDateTimeBR, getClientStatusBadge, isClientActive } from '../utils/formatters';
+import { formatDateTimeBR, getClientStatusBadge, isClientActive, getDaysUntilDue, getOverdueChargeClientIds } from '../utils/formatters';
 
 type SortField = 'name' | 'phone' | 'dueDate' | 'status';
 type SortDirection = 'asc' | 'desc';
@@ -123,14 +123,26 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     }
   }, [initialStatusFilter]);
 
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number | 'all'>(30);
+
   const safeClients = useMemo(() => (Array.isArray(clients) ? clients : []), [clients]);
   const safeCharges = useMemo(() => (Array.isArray(charges) ? charges : []), [charges]);
 
-  // Status counts
+  // Precompute overdue charges client IDs in O(M) once
+  const overdueChargeClientIds = useMemo(() => getOverdueChargeClientIds(safeCharges), [safeCharges]);
+
+  // Status counts in O(N)
   const totalCount = safeClients.length;
   const activeCount = useMemo(() => {
-    return safeClients.filter((cl) => isClientActive(cl, safeCharges)).length;
-  }, [safeClients, safeCharges]);
+    let count = 0;
+    for (let i = 0; i < safeClients.length; i++) {
+      if (isClientActive(safeClients[i], safeCharges, overdueChargeClientIds)) {
+        count++;
+      }
+    }
+    return count;
+  }, [safeClients, safeCharges, overdueChargeClientIds]);
   const overdueCount = totalCount - activeCount;
 
   // Filter out any selected IDs that no longer exist in clients
@@ -144,41 +156,30 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       setSortField(field);
       setSortDirection('asc');
     }
-  };
-
-  const getStatusWeight = (dueDateStr?: string): number => {
-    if (!dueDateStr) return 9999;
-    const [datePart] = dueDateStr.split('T');
-    if (!datePart) return 9999;
-    const [y, m, d] = datePart.split('-').map(Number);
-    if (!y || !m || !d) return 9999;
-
-    const today = new Date();
-    const todayReset = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const dueReset = new Date(y, m - 1, d);
-
-    const diffMs = dueReset.getTime() - todayReset.getTime();
-    return Math.round(diffMs / (1000 * 60 * 60 * 24));
+    setPage(1);
   };
 
   const filteredClients = useMemo(() => {
+    const term = search.toLowerCase().trim();
     return safeClients
       .filter((c) => {
         if (!c) return false;
 
         // Status Filter
         if (statusFilter === 'active') {
-          if (!isClientActive(c, safeCharges)) return false;
+          if (!isClientActive(c, safeCharges, overdueChargeClientIds)) return false;
         } else if (statusFilter === 'overdue') {
-          if (isClientActive(c, safeCharges)) return false;
+          if (isClientActive(c, safeCharges, overdueChargeClientIds)) return false;
         }
 
         // Text Search
-        const matchesSearch =
-          (c.name || '').toLowerCase().includes(search.toLowerCase()) ||
-          (c.phone || '').toLowerCase().includes(search.toLowerCase());
+        if (term) {
+          const nameMatch = (c.name || '').toLowerCase().includes(term);
+          const phoneMatch = (c.phone || '').includes(term);
+          if (!nameMatch && !phoneMatch) return false;
+        }
 
-        return matchesSearch;
+        return true;
       })
       .sort((a, b) => {
         let res = 0;
@@ -191,14 +192,29 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           const dB = b.dueDate || '9999-99-99';
           res = dA.localeCompare(dB);
         } else if (sortField === 'status') {
-          const wA = getStatusWeight(a.dueDate);
-          const wB = getStatusWeight(b.dueDate);
+          const wA = getDaysUntilDue(a.dueDate) ?? 9999;
+          const wB = getDaysUntilDue(b.dueDate) ?? 9999;
           res = wA - wB;
         }
 
         return sortDirection === 'asc' ? res : -res;
       });
-  }, [safeClients, safeCharges, statusFilter, search, sortField, sortDirection]);
+  }, [safeClients, safeCharges, overdueChargeClientIds, statusFilter, search, sortField, sortDirection]);
+
+  // Reset page when filtering or searching changes
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, pageSize]);
+
+  // Paginated clients slice for rendering
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(filteredClients.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+
+  const paginatedClients = useMemo(() => {
+    if (pageSize === 'all') return filteredClients;
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredClients.slice(startIndex, startIndex + pageSize);
+  }, [filteredClients, currentPage, pageSize]);
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
@@ -484,7 +500,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredClients.map((client) => {
+                {paginatedClients.map((client) => {
                   const isSelected = selectedIds.includes(client.id);
                   return (
                     <tr
@@ -570,6 +586,69 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             </table>
           )}
         </div>
+
+        {/* Pagination Footer */}
+        {filteredClients.length > 0 && (
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+            <div className="flex items-center gap-2">
+              <span>
+                Mostrando{' '}
+                <strong className="text-slate-900 font-semibold">
+                  {pageSize === 'all' ? '1' : (currentPage - 1) * pageSize + 1}
+                </strong>{' '}
+                a{' '}
+                <strong className="text-slate-900 font-semibold">
+                  {pageSize === 'all' ? filteredClients.length : Math.min(currentPage * pageSize, filteredClients.length)}
+                </strong>{' '}
+                de <strong className="text-slate-900 font-semibold">{filteredClients.length}</strong> clientes
+              </span>
+
+              <div className="flex items-center gap-1.5 ml-2 border-l border-slate-300 pl-3">
+                <span className="text-slate-500">Por página:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setPageSize(v === 'all' ? 'all' : Number(v));
+                  }}
+                  className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-700 font-medium focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value="all">Todos</option>
+                </select>
+              </div>
+            </div>
+
+            {pageSize !== 'all' && totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Página anterior"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-1 px-2">
+                  <span className="font-semibold text-slate-800">{currentPage}</span>
+                  <span className="text-slate-400">/</span>
+                  <span className="text-slate-600">{totalPages}</span>
+                </div>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Próxima página"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

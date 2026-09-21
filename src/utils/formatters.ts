@@ -1,4 +1,7 @@
 import { Client, Charge, CompanySettings } from '../types';
+import { encodeForWhatsApp, openWhatsAppLink, openDirectWhatsApp } from './whatsappHelpers';
+
+export { encodeForWhatsApp, openWhatsAppLink, openDirectWhatsApp };
 
 export const brl = (v: number): string => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
@@ -44,12 +47,6 @@ export const getChargeStatus = (c: Charge): ChargeStatus => {
   return due < today ? 'late' : 'pending';
 };
 
-export const encodeForWhatsApp = (text: string): string => {
-  if (!text) return '';
-  // Standard encodeURIComponent preserves line breaks (%0A) and symbols without mangling markdown bold/italic
-  return encodeURIComponent(text);
-};
-
 export const calculateRenewalDueDate = (currentDueDate: string | undefined, monthsToAdd: number): string => {
   const now = new Date();
   let baseDate = new Date();
@@ -62,8 +59,6 @@ export const calculateRenewalDueDate = (currentDueDate: string | undefined, mont
       hours = String(parsed.getHours()).padStart(2, '0');
       minutes = String(parsed.getMinutes()).padStart(2, '0');
 
-      // If current due date is in the future, add months to that future date.
-      // If current due date is in the past (overdue), renew starting from TODAY's date so the client stays active in the current month!
       if (parsed > now) {
         baseDate = new Date(parsed.getTime());
       } else {
@@ -109,7 +104,6 @@ export const getDefaultMessage = (
 
   let msg = template;
 
-  // 1. Case-insensitive braced tags replacement
   msg = msg
     .replace(/{nome}|{cliente}/gi, () => client.name || '')
     .replace(/{vencimento}|{venc}|{data}/gi, () => dueStr || '')
@@ -118,7 +112,6 @@ export const getDefaultMessage = (
     .replace(/{pix}/gi, () => settings?.pixKey || '')
     .replace(/{nota}|{observacao}/gi, () => noteText || '');
 
-  // 2. Unbraced tag fallbacks if user typed *vencimento* or *nome* without braces
   if (msg.includes('*vencimento*')) {
     msg = msg.replace(/\*vencimento\*/gi, () => `*${dueStr}*`);
   }
@@ -132,105 +125,9 @@ export const getDefaultMessage = (
   return msg;
 };
 
-export const openWhatsAppLink = (phoneInput: string, text: string, settings?: CompanySettings) => {
-  const phone = normalizePhone(phoneInput);
-  if (!phone) {
-    alert('Cliente sem WhatsApp cadastrado.');
-    return;
-  }
-
-  const fullPhone = phone.length <= 11 && !phone.startsWith('55') ? `55${phone}` : phone;
-  const encodedText = text ? encodeForWhatsApp(text) : '';
-  const method = settings?.whatsappMethod || 'direct_app';
-
-  if (method === 'web') {
-    // WhatsApp Web browser tab directly
-    const targetUrl = `https://web.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
-    try {
-      const a = document.createElement('a');
-      a.href = targetUrl;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) document.body.removeChild(a);
-      }, 150);
-    } catch {
-      window.open(targetUrl, '_blank');
-    }
-    return;
-  }
-
-  if (method === 'wame') {
-    // Universal wa.me link
-    const targetUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
-    try {
-      const a = document.createElement('a');
-      a.href = targetUrl;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) document.body.removeChild(a);
-      }, 150);
-    } catch {
-      window.open(targetUrl, '_blank');
-    }
-    return;
-  }
-
-  // direct_app: WhatsApp / WhatsApp Business direct application protocol (triggers app directly on Android/iOS/PC)
-  const nativeAppUrl = `whatsapp://send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
-
-  try {
-    const a = document.createElement('a');
-    a.href = nativeAppUrl;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      if (document.body.contains(a)) {
-        document.body.removeChild(a);
-      }
-    }, 200);
-  } catch {
-    window.location.href = nativeAppUrl;
-  }
-};
-
-export const openWhatsApp = (client: Client, charge: Charge | null | undefined, settings: CompanySettings) => {
+export const openWhatsApp = (client: Client, charge: Charge | null | undefined, settings: CompanySettings): void => {
   const text = getDefaultMessage(client, charge, settings);
   openWhatsAppLink(client.phone, text, settings);
-};
-
-export const openDirectWhatsApp = (client: Client, settings: CompanySettings) => {
-  const defaultTemplate = 'Olá, {nome}! Tudo bem?\n\nPassando para lembrar sobre o seu vencimento cadastrado para: *{vencimento}*.';
-  const template = settings?.messageTemplate && settings.messageTemplate.trim()
-    ? settings.messageTemplate 
-    : defaultTemplate;
-
-  const dueDateFormatted = client.dueDate ? formatDateTimeBR(client.dueDate) : 'a definir';
-  let msg = template
-    .replace(/{nome}|{cliente}/gi, () => client.name || '')
-    .replace(/{vencimento}|{venc}|{data}/gi, () => dueDateFormatted || '')
-    .replace(/{empresa}/gi, () => settings?.name || '')
-    .replace(/{pix}/gi, () => settings?.pixKey || '')
-    .replace(/{valor}|{quantia}/gi, () => '')
-    .replace(/{nota}|{observacao}/gi, () => '');
-
-  if (msg.includes('*vencimento*')) {
-    msg = msg.replace(/\*vencimento\*/gi, () => `*${dueDateFormatted}*`);
-  }
-  if (msg.includes('*nome*') || msg.includes('*cliente*')) {
-    msg = msg.replace(/\*nome\*|\*cliente\*/gi, () => `*${client.name}*`);
-  }
-
-  if (settings?.signature) {
-    msg += `\n\n${settings.signature}`;
-  }
-
-  openWhatsAppLink(client.phone, msg, settings);
 };
 
 export const formatDateTimeBR = (isoStr?: string): string => {
@@ -241,38 +138,91 @@ export const formatDateTimeBR = (isoStr?: string): string => {
   return timePart ? `${formattedDate} às ${timePart}` : formattedDate;
 };
 
+// High performance cached date calculations
+let cachedTodayKey = '';
+let cachedTodayResetMs = 0;
+const daysUntilDueCache = new Map<string, number | null>();
+const statusBadgeCache = new Map<string, { label: string; className: string }>();
+
+function getTodayResetMs(): number {
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+  if (todayKey !== cachedTodayKey) {
+    cachedTodayKey = todayKey;
+    cachedTodayResetMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    daysUntilDueCache.clear();
+    statusBadgeCache.clear();
+  }
+  return cachedTodayResetMs;
+}
+
 export const getDaysUntilDue = (dueDateStr?: string): number | null => {
   if (!dueDateStr || typeof dueDateStr !== 'string') return null;
-  const datePart = dueDateStr.split('T')[0];
-  if (!datePart) return null;
+  getTodayResetMs();
+
+  const cached = daysUntilDueCache.get(dueDateStr);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const datePart = dueDateStr.includes('T') ? dueDateStr.split('T')[0] : dueDateStr;
+  if (!datePart) {
+    daysUntilDueCache.set(dueDateStr, null);
+    return null;
+  }
+
   const [y, m, d] = datePart.split('-').map(Number);
-  if (!y || !m || !d) return null;
+  if (!y || !m || !d) {
+    daysUntilDueCache.set(dueDateStr, null);
+    return null;
+  }
 
-  const today = new Date();
-  const todayReset = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const dueReset = new Date(y, m - 1, d);
-
-  const diffMs = dueReset.getTime() - todayReset.getTime();
-  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+  const dueResetMs = new Date(y, m - 1, d).getTime();
+  const diffMs = dueResetMs - cachedTodayResetMs;
+  const result = Math.round(diffMs / 86400000);
+  daysUntilDueCache.set(dueDateStr, result);
+  return result;
 };
 
-export const isClientActive = (client: Client, charges: Charge[] = []): boolean => {
+// Pre-computes client IDs that have unpaid overdue charges in a single O(M) pass
+export const getOverdueChargeClientIds = (charges: Charge[] = []): Set<string> => {
+  const overdueSet = new Set<string>();
+  for (let i = 0; i < charges.length; i++) {
+    const ch = charges[i];
+    if (!ch.paid && ch.dueDate) {
+      const diff = getDaysUntilDue(ch.dueDate);
+      if (diff !== null && diff < 0) {
+        overdueSet.add(ch.clientId);
+      }
+    }
+  }
+  return overdueSet;
+};
+
+export const isClientActive = (
+  client: Client,
+  charges: Charge[] = [],
+  precomputedOverdueClientIds?: Set<string>
+): boolean => {
   if (!client) return false;
-  // Se tem data de vencimento, verifica se já está vencido
   const diff = getDaysUntilDue(client.dueDate);
   if (diff !== null && diff < 0) return false;
 
-  // Verifica se possui alguma cobrança em atraso não paga
-  const clientPendingCharges = charges.filter((c) => c.clientId === client.id && !c.paid);
-  const hasOverdueCharge = clientPendingCharges.some((c) => {
-    const cDiff = getDaysUntilDue(c.dueDate);
-    return cDiff !== null && cDiff < 0;
-  });
-  return !hasOverdueCharge;
+  if (precomputedOverdueClientIds) {
+    return !precomputedOverdueClientIds.has(client.id);
+  }
+
+  for (let i = 0; i < charges.length; i++) {
+    const c = charges[i];
+    if (c.clientId === client.id && !c.paid) {
+      const cDiff = getDaysUntilDue(c.dueDate);
+      if (cDiff !== null && cDiff < 0) return false;
+    }
+  }
+  return true;
 };
 
 export const getClientStatusBadge = (dueDateStr?: string) => {
-
   if (!dueDateStr || typeof dueDateStr !== 'string') {
     return {
       label: 'Sem Vencimento',
@@ -280,47 +230,46 @@ export const getClientStatusBadge = (dueDateStr?: string) => {
     };
   }
 
-  const datePart = dueDateStr.split('T')[0];
-  if (!datePart) {
-    return {
+  getTodayResetMs();
+  const cachedBadge = statusBadgeCache.get(dueDateStr);
+  if (cachedBadge) {
+    return cachedBadge;
+  }
+
+  const diffDays = getDaysUntilDue(dueDateStr);
+  if (diffDays === null) {
+    const res = {
       label: 'Sem Vencimento',
       className: 'bg-slate-100 text-slate-600 border border-slate-200',
     };
-  }
-  const [y, m, d] = datePart.split('-').map(Number);
-  if (!y || !m || !d) {
-    return {
-      label: 'Sem Vencimento',
-      className: 'bg-slate-100 text-slate-600 border border-slate-200',
-    };
+    statusBadgeCache.set(dueDateStr, res);
+    return res;
   }
 
-  const today = new Date();
-  const todayReset = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const dueReset = new Date(y, m - 1, d);
-
-  const diffMs = dueReset.getTime() - todayReset.getTime();
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
+  let res: { label: string; className: string };
   if (diffDays === 0) {
-    return {
+    res = {
       label: 'Vence Hoje',
       className: 'bg-amber-100 text-amber-800 border border-amber-300 font-bold',
     };
   } else if (diffDays > 0) {
     const label = diffDays === 1 ? 'Vence em 1 dia' : `Vence em ${diffDays} dias`;
-    return {
+    res = {
       label,
       className: 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold',
     };
   } else {
     const overdueDays = Math.abs(diffDays);
     const label = overdueDays === 1 ? 'Atrasado (1 dia)' : `Atrasado (${overdueDays} dias)`;
-    return {
+    res = {
       label,
       className: 'bg-rose-100 text-rose-800 border border-rose-300 font-bold',
     };
   }
+
+  statusBadgeCache.set(dueDateStr, res);
+  return res;
 };
+
 
 
