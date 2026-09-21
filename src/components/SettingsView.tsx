@@ -19,6 +19,7 @@ interface SettingsViewProps {
   restorePoints?: SystemRestorePoint[];
   onCreateRestorePoint?: (name?: string) => Promise<SystemRestorePoint | null>;
   onDeleteRestorePoint?: (id: string) => Promise<void>;
+  onRequestDeleteRestorePoint?: (point: SystemRestorePoint) => void;
   onImportExternalRestorePoint?: (name: string | undefined, data: { clients?: Client[]; charges?: Charge[]; settings?: CompanySettings }) => Promise<SystemRestorePoint | null>;
   onImportData?: (newData: { settings: CompanySettings; clients: Client[]; charges: Charge[] }) => void;
   onSync?: () => void;
@@ -36,6 +37,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   restorePoints: propRestorePoints,
   onCreateRestorePoint,
   onDeleteRestorePoint,
+  onRequestDeleteRestorePoint,
   onImportExternalRestorePoint,
   onImportData,
   onSync,
@@ -132,19 +134,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!pointToDelete) return;
     const targetId = pointToDelete.id;
     const targetName = pointToDelete.name;
+    const updated = localRestorePoints.filter((rp) => rp.id !== targetId);
+    setLocalRestorePoints(updated);
+    try {
+      localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
+    } catch (e) {
+      logger.error('Error deleting restore point from local storage:', e);
+    }
     if (onDeleteRestorePoint) {
       try {
         await onDeleteRestorePoint(targetId);
       } catch (err) {
         logger.error('Error deleting point from cloud:', err);
-      }
-    } else {
-      const updated = localRestorePoints.filter((rp) => rp.id !== targetId);
-      setLocalRestorePoints(updated);
-      try {
-        localStorage.setItem('gc_v1_restore_points', JSON.stringify(updated));
-      } catch (e) {
-        logger.error('Error deleting restore point:', e);
       }
     }
     setPointToDelete(null);
@@ -402,6 +403,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         handleConfirmRestore={handleConfirmRestore}
         setPointToDelete={setPointToDelete}
         setPointToRestore={setPointToRestore}
+        onRequestDeletePoint={onRequestDeleteRestorePoint}
         externalRestoreInput={externalRestoreInput}
         setExternalRestoreInput={setExternalRestoreInput}
         handleExternalFileUpload={handleExternalFileUpload}

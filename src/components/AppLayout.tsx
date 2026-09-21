@@ -17,6 +17,7 @@ import { RenewalSuccessToast, RenewalToastData } from './RenewalSuccessToast';
 import { SendMessageModal } from './SendMessageModal';
 import { normalizePhone } from '../utils/formatters';
 import type { LiveToast, ConfirmModal } from '../hooks/useAppData';
+import { logger } from '../lib/logger';
 export interface AppLayoutProps {
   data: AppData; activeSection: SectionType; dueTabFilter: DueTabFilter; clientStatusFilter: ClientFilterType;
   liveToast: LiveToast | null; renewalToast: RenewalToastData | null; isClientModalOpen: boolean; clientToEdit: Client | null;
@@ -64,6 +65,27 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       // Sem imagem anexada, abre imediatamente o contato para mensagem de texto
       void handleSendWhatsApp(client, charge);
     }
+  };
+
+  const handleRequestDeleteRestorePoint = (point: SystemRestorePoint) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Ponto de Restauração',
+      message: `Tem certeza que deseja excluir permanentemente o ponto de restauração "${point.name}" (${point.clientsCount} clientes, ${point.chargesCount} cobranças)?`,
+      onConfirm: async () => {
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        try {
+          await handleDeleteRestorePoint(point.id);
+          setLiveToast({
+            title: 'Ponto Excluído',
+            message: `O ponto "${point.name}" foi excluído com sucesso!`,
+            type: 'info'
+          });
+        } catch (err) {
+          logger.error('Error deleting restore point:', err);
+        }
+      }
+    });
   };
 
   return (
@@ -163,6 +185,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             restorePoints={restorePoints}
             onCreateRestorePoint={(name) => createRestorePoint(name, false)}
             onDeleteRestorePoint={handleDeleteRestorePoint}
+            onRequestDeleteRestorePoint={handleRequestDeleteRestorePoint}
             onImportExternalRestorePoint={importExternalRestorePoint}
             onSync={handleManualSync}
             isSyncing={isSyncing}

@@ -577,7 +577,7 @@ export async function fetchRestorePointsFromFirestore(): Promise<SystemRestorePo
     const snap = await getDocs(collection(db, 'restore_points'));
     const points: SystemRestorePoint[] = [];
     snap.forEach((d) => {
-      points.push({ id: d.id, ...d.data() } as SystemRestorePoint);
+      points.push({ ...d.data(), id: d.id } as SystemRestorePoint);
     });
     // Sort newest first
     return points.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -605,7 +605,7 @@ export function subscribeToRestorePoints(
     (snapshot) => {
       const points: SystemRestorePoint[] = [];
       snapshot.forEach((d) => {
-        points.push({ id: d.id, ...d.data() } as SystemRestorePoint);
+        points.push({ ...d.data(), id: d.id } as SystemRestorePoint);
       });
       // Sort newest first
       points.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

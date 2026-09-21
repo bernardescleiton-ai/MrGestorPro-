@@ -8,9 +8,10 @@ export const SettingsDataSections: React.FC<{
   handleCreateRestorePoint: () => void; handleDownloadRestorePoint: (point: SystemRestorePoint) => void;
   settings: CompanySettings; copiedCode: boolean; importCodeInput: string; setImportCodeInput: (value: string) => void; handleCopyBackupCode: () => void; handleExportJSON: () => void; handleImportFromText: () => void; handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSync?: () => void; isSyncing: boolean; syncError: string | null; pointToDelete: SystemRestorePoint | null; pointToRestore: SystemRestorePoint | null; handleConfirmDelete: () => void; handleConfirmRestore: () => void; setPointToDelete: (value: SystemRestorePoint | null) => void; setPointToRestore: (value: SystemRestorePoint | null) => void;
+  onRequestDeletePoint?: (point: SystemRestorePoint) => void;
   externalRestoreInput: string; setExternalRestoreInput: (value: string) => void; handleExternalFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void; handleApplyExternalRestore: (mode: 'restore' | 'point' | 'both') => Promise<void>; isApplyingExternal: boolean;
 }> = (props) => {
-  const { clients, charges, restorePoints, restorePointName, setRestorePointName, isSavingPoint, handleCreateRestorePoint, handleDownloadRestorePoint, settings, copiedCode, importCodeInput, setImportCodeInput, handleCopyBackupCode, handleExportJSON, handleImportFromText, handleFileUpload, onSync, isSyncing, syncError, pointToDelete, pointToRestore, handleConfirmDelete, handleConfirmRestore, setPointToDelete, setPointToRestore, externalRestoreInput, setExternalRestoreInput, handleExternalFileUpload, handleApplyExternalRestore, isApplyingExternal } = props;
+  const { clients, charges, restorePoints, restorePointName, setRestorePointName, isSavingPoint, handleCreateRestorePoint, handleDownloadRestorePoint, settings, copiedCode, importCodeInput, setImportCodeInput, handleCopyBackupCode, handleExportJSON, handleImportFromText, handleFileUpload, onSync, isSyncing, syncError, pointToDelete, pointToRestore, handleConfirmDelete, handleConfirmRestore, setPointToDelete, setPointToRestore, onRequestDeletePoint, externalRestoreInput, setExternalRestoreInput, handleExternalFileUpload, handleApplyExternalRestore, isApplyingExternal } = props;
 
   const detectedExternal = React.useMemo(() => {
     return parseExternalRestoreData(externalRestoreInput);
@@ -219,11 +220,19 @@ export const SettingsDataSections: React.FC<{
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPointToDelete(point)}
-                        className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded-lg transition-colors active:scale-90"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          if (onRequestDeletePoint) {
+                            onRequestDeletePoint(point);
+                          } else {
+                            setPointToDelete(point);
+                          }
+                        }}
+                        className="p-2 text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded-lg transition-colors active:scale-90 cursor-pointer"
                         title="Excluir ponto de restauração"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4 pointer-events-none" />
                       </button>
                     </div>
                     </div>
@@ -327,7 +336,7 @@ export const SettingsDataSections: React.FC<{
             <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
               <div className="font-bold text-xs text-slate-800">{pointToDelete.name}</div>
               <div className="text-[11px] text-slate-500 font-mono">
-                📅 Criado em: {new Date(pointToDelete.createdAt).toLocaleString('pt-BR')}
+                📅 Criado em: {pointToDelete.createdAt ? new Date(pointToDelete.createdAt).toLocaleString('pt-BR') : 'Data não informada'}
               </div>
               <div className="text-[11px] text-slate-500 font-mono">
                 👥 {pointToDelete.clientsCount} clientes • 📋 {pointToDelete.chargesCount} cobranças
