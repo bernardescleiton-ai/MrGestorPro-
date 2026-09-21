@@ -36,6 +36,7 @@ export default function App() {
     setConfirmModal: app.setConfirmModal,
     historyClient: app.historyClient,
     setHistoryClient: app.setHistoryClient,
+    setLiveToast: app.setLiveToast,
   });
 
   const chargeActions = useChargeActions({

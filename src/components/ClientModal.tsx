@@ -1,22 +1,44 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, User, FileText, Phone, Mail, FileEdit, Sparkles, Wand2, CheckCircle2, Users, Upload, Trash2, AlertTriangle } from 'lucide-react';
-import { Client } from '../types';
+import {
+  X,
+  User,
+  FileText,
+  Phone,
+  Mail,
+  FileEdit,
+  Sparkles,
+  Wand2,
+  CheckCircle2,
+  Users,
+  Upload,
+  Trash2,
+  AlertTriangle,
+  RefreshCw,
+  UserPlus,
+  ArrowRight,
+  ShieldCheck,
+  Check,
+} from 'lucide-react';
+import { Client, BatchSavePayload } from '../types';
 import {
   ParsedBulkClient,
   parseClientText,
   parseBulkClients,
   isDuplicateClientName,
+  normalizeNameForComparison,
   cleanClientName,
   isDateString,
   parseDateAndTimeString,
   addOffsetToCurrentDate,
 } from '../utils/clientParser';
+import { formatDateTimeBR } from '../utils/formatters';
 
 export type { ParsedBulkClient };
 export {
   parseClientText,
   parseBulkClients,
   isDuplicateClientName,
+  normalizeNameForComparison,
   cleanClientName,
   isDateString,
   parseDateAndTimeString,
@@ -27,7 +49,7 @@ interface ClientModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (clientData: Omit<Client, 'id' | 'createdAt'>, editId?: string) => void;
-  onSaveBatch?: (clientsData: Omit<Client, 'id' | 'createdAt'>[]) => void;
+  onSaveBatch?: (payload: Omit<Client, 'id' | 'createdAt'>[] | BatchSavePayload) => void;
   clientToEdit?: Client | null;
   clients?: Client[];
 }
@@ -53,12 +75,30 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   // Bulk import state
   const [bulkInput, setBulkInput] = useState('');
   const [parsedBulkList, setParsedBulkList] = useState<ParsedBulkClient[]>([]);
-  const [bulkFilteredCount, setBulkFilteredCount] = useState<number>(0);
+  const [batchDuplicatesMerged, setBatchDuplicatesMerged] = useState<number>(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const duplicateFound = useMemo(() => {
     return isDuplicateClientName(name, clients || [], clientToEdit?.id);
   }, [name, clients, clientToEdit]);
+
+  const bulkCounts = useMemo(() => {
+    let toCreate = 0;
+    let toUpdate = 0;
+    let withDueDateChange = 0;
+    let withPhoneChange = 0;
+
+    for (const item of parsedBulkList) {
+      if (item.action === 'update') {
+        toUpdate++;
+        if (item.comparison?.dueDateChanged) withDueDateChange++;
+        if (item.comparison?.phoneChanged) withPhoneChange++;
+      } else {
+        toCreate++;
+      }
+    }
+    return { toCreate, toUpdate, withDueDateChange, withPhoneChange, total: parsedBulkList.length };
+  }, [parsedBulkList]);
 
   useEffect(() => {
     if (clientToEdit) {
@@ -77,7 +117,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
     setPasteInput('');
     setBulkInput('');
     setParsedBulkList([]);
-    setBulkFilteredCount(0);
+    setBatchDuplicatesMerged(0);
     setAutoOrganizedAlert(null);
     setErrorMsg(null);
   }, [clientToEdit, isOpen]);
@@ -118,26 +158,87 @@ export const ClientModal: React.FC<ClientModalProps> = ({
 
     const safeClients = clients || [];
     const uniqueList: ParsedBulkClient[] = [];
-    const seenNames = new Set<string>();
-    let duplicatesFiltered = 0;
+    const seenNamesInBatch = new Map<string, number>();
+    let mergedCount = 0;
 
-    for (const c of results) {
-      const dup = isDuplicateClientName(c.name, safeClients);
-      const lower = c.name.trim().toLowerCase();
+    for (const item of results) {
+      const normName = normalizeNameForComparison(item.name);
+      if (!normName) continue;
 
-      if (dup || seenNames.has(lower)) {
-        duplicatesFiltered++;
-      } else {
-        seenNames.add(lower);
-        uniqueList.push(c);
+      // Duplicate within the pasted batch: merge into a single item
+      if (seenNamesInBatch.has(normName)) {
+        mergedCount++;
+        const existingIdx = seenNamesInBatch.get(normName)!;
+        const prevItem = uniqueList[existingIdx];
+
+        const mergedPhone = item.phone || prevItem.phone;
+        const mergedDueDate = item.dueDate || prevItem.dueDate;
+        const mergedNotes = item.notes || prevItem.notes;
+
+        const dup = isDuplicateClientName(prevItem.name, safeClients);
+        const isExisting = Boolean(dup);
+        const phoneChanged = Boolean(isExisting && dup && mergedPhone && mergedPhone.trim() !== (dup.phone || '').trim());
+        const dueDateChanged = Boolean(isExisting && dup && mergedDueDate && mergedDueDate.trim() !== (dup.dueDate || '').trim());
+        const notesChanged = Boolean(isExisting && dup && mergedNotes && mergedNotes.trim() !== (dup.notes || '').trim());
+
+        uniqueList[existingIdx] = {
+          name: dup ? dup.name : prevItem.name,
+          phone: mergedPhone,
+          dueDate: mergedDueDate,
+          notes: mergedNotes,
+          action: isExisting ? 'update' : 'create',
+          comparison: {
+            isExisting,
+            existingClientId: dup?.id,
+            existingClientName: dup?.name,
+            phoneChanged,
+            oldPhone: dup?.phone || '',
+            newPhone: mergedPhone,
+            dueDateChanged,
+            oldDueDate: dup?.dueDate || '',
+            newDueDate: mergedDueDate,
+            notesChanged,
+          },
+        };
+        continue;
       }
+
+      // Check against existing clients in the system
+      const dup = isDuplicateClientName(item.name, safeClients);
+      const isExisting = Boolean(dup);
+      const phoneChanged = Boolean(isExisting && dup && item.phone && item.phone.trim() !== (dup.phone || '').trim());
+      const dueDateChanged = Boolean(isExisting && dup && item.dueDate && item.dueDate.trim() !== (dup.dueDate || '').trim());
+      const notesChanged = Boolean(isExisting && dup && item.notes && item.notes.trim() !== (dup.notes || '').trim());
+
+      const analyzedItem: ParsedBulkClient = {
+        name: dup ? dup.name : item.name,
+        phone: item.phone,
+        dueDate: item.dueDate,
+        notes: item.notes,
+        action: isExisting ? 'update' : 'create',
+        comparison: {
+          isExisting,
+          existingClientId: dup?.id,
+          existingClientName: dup?.name,
+          phoneChanged,
+          oldPhone: dup?.phone || '',
+          newPhone: item.phone,
+          dueDateChanged,
+          oldDueDate: dup?.dueDate || '',
+          newDueDate: item.dueDate,
+          notesChanged,
+        },
+      };
+
+      seenNamesInBatch.set(normName, uniqueList.length);
+      uniqueList.push(analyzedItem);
     }
 
     setParsedBulkList(uniqueList);
-    setBulkFilteredCount(duplicatesFiltered);
+    setBatchDuplicatesMerged(mergedCount);
 
-    if (uniqueList.length === 0 && duplicatesFiltered > 0) {
-      setErrorMsg(`Todos os ${duplicatesFiltered} clientes da lista colada já estão cadastrados no sistema. Nenhum cliente novo foi encontrado.`);
+    if (uniqueList.length === 0) {
+      setErrorMsg('Não foi possível identificar dados válidos na lista colada.');
     }
   };
 
@@ -153,30 +254,51 @@ export const ClientModal: React.FC<ClientModalProps> = ({
     }
 
     const safeClients = clients || [];
-    const uniqueBatch: Omit<Client, 'id' | 'createdAt'>[] = [];
-    const seenNames = new Set<string>();
+    const toCreate: Omit<Client, 'id' | 'createdAt'>[] = [];
+    const toUpdate: { id: string; data: Partial<Client> }[] = [];
 
-    for (const c of parsedBulkList) {
-      const dup = isDuplicateClientName(c.name, safeClients);
-      const lower = c.name.trim().toLowerCase();
-
-      if (!dup && !seenNames.has(lower)) {
-        seenNames.add(lower);
-        uniqueBatch.push(c);
+    for (const item of parsedBulkList) {
+      if (item.action === 'update' && item.comparison?.existingClientId) {
+        const updateData: Partial<Client> = {};
+        if (item.phone && item.phone.trim()) updateData.phone = item.phone.trim();
+        if (item.dueDate && item.dueDate.trim()) updateData.dueDate = item.dueDate.trim();
+        if (item.notes && item.notes.trim()) updateData.notes = item.notes.trim();
+        toUpdate.push({
+          id: item.comparison.existingClientId,
+          data: updateData,
+        });
+      } else {
+        const existing = isDuplicateClientName(item.name, safeClients);
+        if (existing) {
+          const updateData: Partial<Client> = {};
+          if (item.phone && item.phone.trim()) updateData.phone = item.phone.trim();
+          if (item.dueDate && item.dueDate.trim()) updateData.dueDate = item.dueDate.trim();
+          if (item.notes && item.notes.trim()) updateData.notes = item.notes.trim();
+          toUpdate.push({
+            id: existing.id,
+            data: updateData,
+          });
+        } else {
+          toCreate.push({
+            name: item.name.trim(),
+            phone: item.phone.trim(),
+            dueDate: item.dueDate.trim(),
+            notes: item.notes.trim(),
+          });
+        }
       }
     }
 
-    if (uniqueBatch.length === 0) {
-      setErrorMsg('Nenhum cliente novo para adicionar (todos os clientes da lista já existem no cadastro).');
+    if (toCreate.length === 0 && toUpdate.length === 0) {
+      setErrorMsg('Nenhuma alteração para salvar.');
       return;
     }
 
     if (onSaveBatch) {
-      onSaveBatch(uniqueBatch);
+      onSaveBatch({ toCreate, toUpdate });
     } else {
-      for (const c of uniqueBatch) {
-        onSave(c);
-      }
+      for (const c of toCreate) onSave(c);
+      for (const u of toUpdate) onSave(u.data as any, u.id);
     }
     onClose();
   };
@@ -266,7 +388,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                   : 'text-slate-600 hover:bg-slate-200/60'
               }`}
             >
-              <Upload className="w-4 h-4" /> Importar Lista em Massa (Vários)
+              <Upload className="w-4 h-4" /> Importar e Atualizar em Massa
             </button>
           </div>
         )}
@@ -288,22 +410,22 @@ export const ClientModal: React.FC<ClientModalProps> = ({
           </div>
         )}
 
-        {/* BULK IMPORT MODE */}
+        {/* BULK IMPORT AND UPDATE MODE */}
         {mode === 'bulk' && !clientToEdit ? (
           <div className="p-6 space-y-4 overflow-y-auto flex-1">
             <div className="bg-indigo-50/80 p-4 rounded-xl border border-indigo-200 text-indigo-900 space-y-2">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider">
                 <Sparkles className="w-4 h-4 text-indigo-600" />
-                <span>Cole sua lista de clientes organizada (20+ clientes):</span>
+                <span>Cadastrar Novos e Atualizar Existentes em Massa:</span>
               </div>
-              <p className="text-xs text-slate-600 font-sans">
-                Cole abaixo sua lista copiada do Excel, WhatsApp ou Bloco de Notas. O sistema identifica e organiza separadamente o <strong>Nome</strong>, o <strong>WhatsApp</strong> e a <strong>Data de Vencimento</strong> de cada cliente.
+              <p className="text-xs text-slate-600 font-sans leading-relaxed">
+                Cole abaixo sua lista copiada do Excel, WhatsApp ou Bloco de Notas. O sistema identifica e organiza o <strong>Nome</strong>, o <strong>WhatsApp</strong> e a <strong>Data de Vencimento</strong>: clientes novos serão cadastrados e <strong>clientes já existentes terão seu telefone e data de vencimento atualizados</strong>, com garantia de <strong>zero duplicidades</strong>.
               </p>
               <textarea
                 rows={6}
                 value={bulkInput}
                 onChange={(e) => setBulkInput(e.target.value)}
-                placeholder={`Exemplo de formato aceito:\nJoão Silva, (48) 99999-1111, 25/08/2026\nMaria Santos - 48988882222 - 30/08/2026\nCarlos Souza    (11) 97777-3333    10/09/2026`}
+                placeholder={`Exemplo de formato aceito:\nJoão Silva, (48) 99999-1111, 25/08/2026\nMaria Santos - 48988882222 - 30/08/2026 (se já cadastrada, atualiza seu vencimento e telefone)\nCarlos Souza    (11) 97777-3333    10/09/2026`}
                 className="w-full p-3 bg-white border border-indigo-300 rounded-xl text-xs font-mono text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500 shadow-inner"
               />
               <button
@@ -311,68 +433,131 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                 onClick={handleAnalyzeBulk}
                 className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider shadow-sm transition-all flex items-center justify-center gap-2"
               >
-                <Wand2 className="w-4 h-4" /> Analisar e Organizar Lista Automaticamente
+                <Wand2 className="w-4 h-4" /> Analisar, Filtrar e Comparar Dados da Lista
               </button>
             </div>
 
             {parsedBulkList.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Prévia Organizada ({parsedBulkList.length} clientes novos prontos):
+                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>Lista Processada ({parsedBulkList.length} clientes):</span>
                   </h3>
-                  <div className="flex items-center gap-2">
-                    {bulkFilteredCount > 0 && (
-                      <span className="text-[10px] text-amber-800 bg-amber-100 border border-amber-200 px-2.5 py-0.5 rounded-full font-mono font-bold">
-                        ⚡ {bulkFilteredCount} duplicados filtrados e excluídos
+                  <div className="flex items-center flex-wrap gap-1.5">
+                    {bulkCounts.toCreate > 0 && (
+                      <span className="text-[10px] text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                        <UserPlus className="w-3 h-3 text-emerald-600" />
+                        {bulkCounts.toCreate} novos
                       </span>
                     )}
-                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full font-mono font-bold">
-                      ✓ Apenas clientes novos
+                    {bulkCounts.toUpdate > 0 && (
+                      <span className="text-[10px] text-sky-800 bg-sky-100 border border-sky-300 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3 text-sky-600" />
+                        {bulkCounts.toUpdate} a atualizar
+                      </span>
+                    )}
+                    {batchDuplicatesMerged > 0 && (
+                      <span className="text-[10px] text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full font-bold">
+                        ⚡ {batchDuplicatesMerged} repetições unificadas
+                      </span>
+                    )}
+                    <span className="text-[10px] text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3 text-indigo-600" />
+                      Zero Duplicidades
                     </span>
                   </div>
                 </div>
 
-                <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-slate-50/50">
+                {bulkCounts.toUpdate > 0 && (
+                  <div className="p-3 bg-sky-50/90 border border-sky-200 text-sky-900 rounded-xl text-xs flex items-start gap-2.5">
+                    <RefreshCw className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                    <div className="leading-relaxed">
+                      <strong>Mecanismo de Atualização Ativo:</strong> Identificamos {bulkCounts.toUpdate} cliente(s) que já possuem cadastro no sistema. Ao salvar, os dados novos de telefone e vencimento serão aplicados aos cadastros existentes sem criar nenhum cliente duplicado.
+                    </div>
+                  </div>
+                )}
+
+                <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-slate-50/50">
                   {parsedBulkList.map((item, idx) => {
-                    const dupMatch = isDuplicateClientName(item.name, clients || []);
+                    const isUpdate = item.action === 'update';
+                    const comp = item.comparison;
                     return (
                       <div
                         key={idx}
                         className={`p-3 flex items-center justify-between gap-3 text-xs transition-colors ${
-                          dupMatch ? 'bg-rose-50/80 border-l-4 border-l-rose-500' : 'bg-white hover:bg-blue-50/30'
+                          isUpdate
+                            ? 'bg-sky-50/50 border-l-4 border-l-sky-500 hover:bg-sky-50/80'
+                            : 'bg-white border-l-4 border-l-emerald-500 hover:bg-emerald-50/30'
                         }`}
                       >
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-1">
+                          {/* Nome */}
                           <div>
-                            <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
-                              Nome
-                              {dupMatch && (
-                                <span className="text-rose-600 font-bold text-[10px] uppercase tracking-tight">
-                                  (Já existe: {dupMatch.name})
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] text-slate-400 font-mono">Nome:</span>
+                              {isUpdate ? (
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 border border-sky-200">
+                                  Existente (Atualizar)
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  Novo Cadastro
                                 </span>
                               )}
-                            </span>
-                            <span className={`font-bold ${dupMatch ? 'text-rose-900' : 'text-slate-800'}`}>
+                            </div>
+                            <span className={`font-bold text-sm block truncate ${isUpdate ? 'text-sky-950' : 'text-slate-800'}`}>
                               {item.name}
                             </span>
                           </div>
+
+                          {/* WhatsApp */}
                           <div>
                             <span className="text-[10px] text-slate-400 font-mono block">WhatsApp</span>
-                            <span className="text-slate-600 font-mono">{item.phone || 'Sem telefone'}</span>
+                            {isUpdate && comp?.phoneChanged ? (
+                              <div className="flex items-center gap-1 font-mono text-xs flex-wrap">
+                                <span className="line-through text-slate-400">{comp.oldPhone || 'Sem número'}</span>
+                                <ArrowRight className="w-3 h-3 text-sky-600 inline shrink-0" />
+                                <span className="font-bold text-emerald-700 bg-emerald-50 px-1 rounded">{item.phone}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-600 font-mono text-xs">
+                                {item.phone || (isUpdate && comp?.oldPhone) || 'Sem telefone'}
+                                {isUpdate && !comp?.phoneChanged && item.phone && (
+                                  <span className="text-[10px] text-slate-400 ml-1">(mantido)</span>
+                                )}
+                              </span>
+                            )}
                           </div>
+
+                          {/* Vencimento */}
                           <div>
                             <span className="text-[10px] text-slate-400 font-mono block">Vencimento</span>
-                            <span className="text-indigo-600 font-mono font-semibold">
-                              {item.dueDate ? item.dueDate.replace('T', ' ') : 'Sem vencimento'}
-                            </span>
+                            {isUpdate && comp?.dueDateChanged ? (
+                              <div className="flex items-center gap-1 font-mono text-xs flex-wrap">
+                                <span className="line-through text-slate-400">
+                                  {comp.oldDueDate ? formatDateTimeBR(comp.oldDueDate) : 'Sem venc.'}
+                                </span>
+                                <ArrowRight className="w-3 h-3 text-sky-600 inline shrink-0" />
+                                <span className="font-bold text-emerald-700 bg-emerald-50 px-1 rounded">
+                                  {item.dueDate ? formatDateTimeBR(item.dueDate) : 'Sem venc.'}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-indigo-600 font-mono font-semibold text-xs">
+                                {item.dueDate ? formatDateTimeBR(item.dueDate) : (isUpdate && comp?.oldDueDate ? formatDateTimeBR(comp.oldDueDate) : 'Sem vencimento')}
+                                {isUpdate && !comp?.dueDateChanged && item.dueDate && (
+                                  <span className="text-[10px] text-slate-400 ml-1 font-normal">(mantido)</span>
+                                )}
+                              </span>
+                            )}
                           </div>
                         </div>
+
                         <button
                           type="button"
                           onClick={() => handleRemoveBulkItem(idx)}
-                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                          title="Remover da lista"
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
+                          title="Remover este item da lista"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -385,16 +570,21 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50"
+                    className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
                   >
                     Cancelar
                   </button>
                   <button
                     type="button"
                     onClick={handleSubmitBulk}
-                    className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md transition-colors flex items-center gap-2"
+                    className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md transition-all flex items-center gap-2"
                   >
-                    <CheckCircle2 className="w-4 h-4" /> Cadastrar Todos os {parsedBulkList.length} Clientes
+                    <CheckCircle2 className="w-4 h-4" />
+                    {bulkCounts.toCreate > 0 && bulkCounts.toUpdate > 0
+                      ? `Salvar: ${bulkCounts.toCreate} Novo(s) e Atualizar ${bulkCounts.toUpdate} Existente(s)`
+                      : bulkCounts.toCreate > 0
+                      ? `Cadastrar Todos os ${bulkCounts.toCreate} Novos Clientes`
+                      : `Atualizar os ${bulkCounts.toUpdate} Clientes Existentes`}
                   </button>
                 </div>
               </div>

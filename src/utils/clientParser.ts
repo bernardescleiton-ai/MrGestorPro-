@@ -1,10 +1,25 @@
 import { Client } from '../types';
 
+export interface BulkClientComparison {
+  isExisting: boolean;
+  existingClientId?: string;
+  existingClientName?: string;
+  phoneChanged: boolean;
+  oldPhone?: string;
+  newPhone?: string;
+  dueDateChanged: boolean;
+  oldDueDate?: string;
+  newDueDate?: string;
+  notesChanged?: boolean;
+}
+
 export interface ParsedBulkClient {
   name: string;
   phone: string;
   dueDate: string;
   notes: string;
+  action?: 'create' | 'update';
+  comparison?: BulkClientComparison;
 }
 
 export function isExplicitDateString(str: string): boolean {
@@ -277,23 +292,29 @@ export function parseClientText(rawText: string) {
 
 export { parseBulkClients } from './bulkClientParser';
 
+export function normalizeNameForComparison(name: string): string {
+  if (!name) return '';
+  return cleanClientName(name)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function isDuplicateClientName(
   candidateName: string,
   existingClients: Client[],
   excludeId?: string
 ): Client | undefined {
   if (!candidateName || !candidateName.trim()) return undefined;
-  const cleanCandidate = cleanClientName(candidateName).toLowerCase();
+  const cleanCandidate = normalizeNameForComparison(candidateName);
   if (!cleanCandidate) return undefined;
 
   return existingClients.find((c) => {
     if (excludeId && c.id === excludeId) return false;
-    const cleanExisting = cleanClientName(c.name || '').toLowerCase();
-
-    if (cleanCandidate === cleanExisting) {
-      return true;
-    }
-    return false;
+    const cleanExisting = normalizeNameForComparison(c.name || '');
+    return cleanCandidate === cleanExisting;
   });
 }
 

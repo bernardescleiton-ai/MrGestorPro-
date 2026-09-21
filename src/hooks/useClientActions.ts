@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import type { AppData, Client, Charge, WhatsAppMediaAttachment } from '../types';
-import type { ConfirmModal } from './useAppData';
+import type { AppData, Client, Charge, WhatsAppMediaAttachment, BatchSavePayload } from '../types';
+import type { ConfirmModal, LiveToast } from './useAppData';
 import type { RenewalToastData } from '../components/RenewalSuccessToast';
 import { isDuplicateClientName } from '../components/ClientModal';
 import { calculateRenewalDueDate, formatDateTimeBR, normalizePhone } from '../utils/formatters';
@@ -11,6 +11,7 @@ import { trackClientDeletion, trackClientsBatchDeletion, trackChargeDeletion, tr
 export const useClientActions = ({
   data, setData, generateUUID, setClientToEdit, setIsClientModalOpen, setRenewalClient,
   setIsRenewalModalOpen, setRenewalToast, setConfirmModal, historyClient, setHistoryClient,
+  setLiveToast,
 }: {
   data: AppData;
   setData: (update: AppData | ((prev: AppData) => AppData)) => void;
@@ -23,6 +24,7 @@ export const useClientActions = ({
   setConfirmModal: React.Dispatch<React.SetStateAction<ConfirmModal>>;
   historyClient: Client | null;
   setHistoryClient: (client: Client | null) => void;
+  setLiveToast?: React.Dispatch<React.SetStateAction<LiveToast | null>>;
 }) => {
   const handleOpenNewClient = useCallback(() => { setClientToEdit(null); setIsClientModalOpen(true); }, []);
   const handleOpenEditClient = useCallback((client: Client) => { setClientToEdit(client); setIsClientModalOpen(true); }, []);
@@ -86,24 +88,104 @@ export const useClientActions = ({
 
   const handleUpdateClientPhone = useCallback((clientId: string, newPhone: string) => setData((prev) => ({ ...prev, clients: prev.clients.map((c) => c.id === clientId ? { ...c, phone: newPhone } : c) })), [setData]);
 
-  const handleSaveBatch = useCallback((clientsData: Omit<Client, 'id' | 'createdAt'>[]) => {
+  const handleSaveBatch = useCallback((payload: Omit<Client, 'id' | 'createdAt'>[] | BatchSavePayload) => {
+    const toCreate = Array.isArray(payload) ? payload : (payload.toCreate || []);
+    const toUpdate = Array.isArray(payload) ? [] : (payload.toUpdate || []);
+
     setData((prev) => {
-      let updatedClients = [...prev.clients]; let updatedCharges = [...prev.charges];
+      let updatedClients = [...prev.clients];
+      let updatedCharges = [...prev.charges];
       const existingNames = new Set(prev.clients.map((c) => c.name.trim().toLowerCase()));
-      for (const clientData of clientsData) {
-        const trimmedName = clientData.name.trim(); const lowerName = trimmedName.toLowerCase();
+
+      // 1. Process Updates for Existing Clients (NO duplicate created, updates phone, dueDate, notes)
+      for (const item of toUpdate) {
+        const cIndex = updatedClients.findIndex((c) => c.id === item.id);
+        if (cIndex === -1) continue;
+        const currentClient = updatedClients[cIndex];
+
+        const updatedClient: Client = {
+          ...currentClient,
+          ...(item.data.phone !== undefined && item.data.phone !== '' ? { phone: item.data.phone } : {}),
+          ...(item.data.dueDate !== undefined && item.data.dueDate !== '' ? { dueDate: item.data.dueDate } : {}),
+          ...(item.data.notes !== undefined && item.data.notes !== '' ? { notes: item.data.notes } : {}),
+        };
+        updatedClients[cIndex] = updatedClient;
+
+        // Keep unpaid charge synchronized if dueDate is updated
+        if (item.data.dueDate) {
+          const [datePart, timePart] = item.data.dueDate.includes('T')
+            ? item.data.dueDate.split('T')
+            : [item.data.dueDate, ''];
+          const existingChargeIndex = updatedCharges.findIndex((ch) => ch.clientId === item.id && !ch.paid);
+          if (existingChargeIndex >= 0) {
+            updatedCharges[existingChargeIndex] = {
+              ...updatedCharges[existingChargeIndex],
+              dueDate: datePart,
+              dueTime: timePart || undefined,
+            };
+          } else {
+            updatedCharges = [
+              {
+                id: generateUUID(),
+                clientId: item.id,
+                amount: 0,
+                dueDate: datePart,
+                dueTime: timePart || undefined,
+                paid: false,
+                note: 'Vencimento do Cliente',
+                createdAt: new Date().toISOString(),
+              },
+              ...updatedCharges,
+            ];
+          }
+        }
+      }
+
+      // 2. Process New Clients to Create
+      for (const clientData of toCreate) {
+        const trimmedName = clientData.name.trim();
+        const lowerName = trimmedName.toLowerCase();
         if (existingNames.has(lowerName)) continue;
         existingNames.add(lowerName);
         const targetClientId = generateUUID();
-        updatedClients = [{ id: targetClientId, ...clientData, name: trimmedName, createdAt: new Date().toISOString() }, ...updatedClients];
+        updatedClients = [
+          { id: targetClientId, ...clientData, name: trimmedName, createdAt: new Date().toISOString() },
+          ...updatedClients,
+        ];
         if (clientData.dueDate) {
-          const [datePart, timePart] = clientData.dueDate.includes('T') ? clientData.dueDate.split('T') : [clientData.dueDate, ''];
-          updatedCharges = [{ id: generateUUID(), clientId: targetClientId, amount: 0, dueDate: datePart, dueTime: timePart || undefined, paid: false, note: 'Vencimento do Cliente', createdAt: new Date().toISOString() }, ...updatedCharges];
+          const [datePart, timePart] = clientData.dueDate.includes('T')
+            ? clientData.dueDate.split('T')
+            : [clientData.dueDate, ''];
+          updatedCharges = [
+            {
+              id: generateUUID(),
+              clientId: targetClientId,
+              amount: 0,
+              dueDate: datePart,
+              dueTime: timePart || undefined,
+              paid: false,
+              note: 'Vencimento do Cliente',
+              createdAt: new Date().toISOString(),
+            },
+            ...updatedCharges,
+          ];
         }
       }
+
       return { ...prev, clients: updatedClients, charges: updatedCharges };
     });
-  }, [generateUUID, setData]);
+
+    if (setLiveToast && (toCreate.length > 0 || toUpdate.length > 0)) {
+      const summaryMsg = [];
+      if (toCreate.length > 0) summaryMsg.push(`${toCreate.length} novo(s) cadastrado(s)`);
+      if (toUpdate.length > 0) summaryMsg.push(`${toUpdate.length} existente(s) atualizado(s)`);
+      setLiveToast({
+        title: 'Processamento em Massa Concluído',
+        description: `${summaryMsg.join(' e ')} com sucesso, sem duplicidades!`,
+        type: 'charge_due',
+      });
+    }
+  }, [generateUUID, setData, setLiveToast]);
 
   const handleDeleteClient = useCallback((clientId: string) => {
     const client = data.clients.find((c) => c.id === clientId);

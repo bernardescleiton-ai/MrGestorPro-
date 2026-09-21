@@ -94,3 +94,16 @@ export interface AppData {
 }
 
 export type SectionType = 'dashboard' | 'clients' | 'due' | 'charges' | 'profile' | 'notices' | 'settings';
+
+export interface BatchSavePayload {
+  toCreate: Omit<Client, 'id' | 'createdAt'>[];
+  toUpdate: {
+    id: string;
+    data: {
+      name?: string;
+      phone?: string;
+      dueDate?: string;
+      notes?: string;
+    };
+  }[];
+}
