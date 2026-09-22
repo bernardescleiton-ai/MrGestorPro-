@@ -334,5 +334,38 @@ export const getClientStatusBadge = (dueDateStr?: string) => {
   return res;
 };
 
+export const deduplicateClients = (clients: Client[]): Client[] => {
+  if (!Array.isArray(clients)) return [];
+  const seen = new Set<string>();
+  const unique: Client[] = [];
+
+  for (const c of clients) {
+    if (!c) continue;
+    const cleanPhone = (c.phone || '').replace(/\D/g, '');
+    const cleanName = (c.name || '').trim().toLowerCase();
+    const key = c.id ? `id_${c.id}` : `np_${cleanName}_${cleanPhone}`;
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(c);
+    }
+  }
+  return unique;
+};
+
+export const formatClientForCopy = (c: Client): string => {
+  if (!c) return '';
+  const cleanName = (c.name || '').trim();
+  const rawDate = c.dueDate ? c.dueDate.split('T')[0] : '';
+  const dateStr = rawDate ? dateBR(rawDate) : '';
+  const cleanPhone = (c.phone || '').replace(/\D/g, '');
+  return `${cleanName}\n${dateStr}\n${cleanPhone}`;
+};
+
+export const formatClientsListForCopy = (clients: Client[]): string => {
+  const uniqueClients = deduplicateClients(clients);
+  return uniqueClients.map(formatClientForCopy).filter(Boolean).join('\n');
+};
+
 
 

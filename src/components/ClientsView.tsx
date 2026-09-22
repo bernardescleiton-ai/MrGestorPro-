@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Phone, Mail, FileText, Edit, Trash2, History, MessageSquare, Sparkles, CheckSquare, Square, RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, Check, Pencil, Users, ShieldCheck, AlertTriangle, X, ChevronLeft, ChevronRight, Copy, Download, FileSpreadsheet } from 'lucide-react';
 import { Client, Charge } from '../types';
-import { formatDateTimeBR, getClientStatusBadge, isClientActive, getDaysUntilDue, getOverdueChargeClientIds, formatPhoneNumber } from '../utils/formatters';
+import { formatDateTimeBR, getClientStatusBadge, isClientActive, getDaysUntilDue, getOverdueChargeClientIds, formatPhoneNumber, deduplicateClients, formatClientForCopy, formatClientsListForCopy } from '../utils/formatters';
 import { ExportClientsModal } from './ExportClientsModal';
 
 type SortField = 'name' | 'phone' | 'dueDate' | 'status';
@@ -163,14 +163,8 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   const handleDirectCopy = async (targetClients: Client[]) => {
     if (!targetClients || targetClients.length === 0) return;
-    const text = targetClients
-      .map((c, index) => {
-        const formattedDate = c.dueDate ? formatDateTimeBR(c.dueDate) : 'Sem data de vencimento';
-        const formattedPhone = c.phone ? formatPhoneNumber(c.phone) : 'Sem telefone';
-        const notesLine = c.notes ? `\nObservações: ${c.notes}` : '';
-        return `${index + 1}. ${c.name}\nTelefone: ${formattedPhone}\nVencimento: ${formattedDate}${notesLine}`;
-      })
-      .join('\n\n');
+    const text = formatClientsListForCopy(targetClients);
+    const uniqueCount = deduplicateClients(targetClients).length;
 
     try {
       if (navigator?.clipboard?.writeText) {
@@ -187,7 +181,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         document.body.removeChild(textArea);
       }
       setCopiedBatch(true);
-      showLocalToast('Copiado com Sucesso!', `${targetClients.length} cliente(s) copiado(s) para a área de transferência.`);
+      showLocalToast('Copiado com Sucesso!', `${uniqueCount} cliente(s) copiado(s) para a área de transferência.`);
       setTimeout(() => setCopiedBatch(false), 2500);
     } catch (err) {
       console.error('Erro ao copiar dados:', err);
@@ -195,9 +189,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   };
 
   const handleCopySingle = async (client: Client) => {
-    const formattedDate = client.dueDate ? formatDateTimeBR(client.dueDate) : 'Sem data de vencimento';
-    const formattedPhone = client.phone ? formatPhoneNumber(client.phone) : 'Sem telefone';
-    const text = `Nome: ${client.name}\nTelefone: ${formattedPhone}\nVencimento: ${formattedDate}${client.notes ? `\nObservações: ${client.notes}` : ''}`;
+    const text = formatClientForCopy(client);
     try {
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -222,12 +214,12 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   const handleOpenExportModal = (customList?: Client[]) => {
     if (customList && customList.length > 0) {
-      setExportClientsList(customList);
+      setExportClientsList(deduplicateClients(customList));
     } else if (activeSelectedIds.length > 0) {
       const selectedList = safeClients.filter((c) => activeSelectedIds.includes(c.id));
-      setExportClientsList(selectedList);
+      setExportClientsList(deduplicateClients(selectedList));
     } else {
-      setExportClientsList(filteredClients);
+      setExportClientsList(deduplicateClients(filteredClients));
     }
     setIsExportModalOpen(true);
   };

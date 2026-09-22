@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { X, Copy, Check, Download, FileText, Table, FileCode, Users, Share2 } from 'lucide-react';
 import { Client } from '../types';
-import { formatDateTimeBR, formatPhoneNumber } from '../utils/formatters';
+import { dateBR, formatPhoneNumber, deduplicateClients, formatClientsListForCopy } from '../utils/formatters';
 
 export type ExportFormat = 'detailed' | 'single-line' | 'pipe' | 'csv' | 'json';
 
@@ -21,60 +21,56 @@ export const ExportClientsModal: React.FC<ExportClientsModalProps> = ({
   const [format, setFormat] = useState<ExportFormat>('detailed');
   const [copied, setCopied] = useState(false);
 
+  const uniqueClients = useMemo(() => deduplicateClients(selectedClients), [selectedClients]);
+
   const generatedContent = useMemo(() => {
-    if (!selectedClients || selectedClients.length === 0) return '';
+    if (!uniqueClients || uniqueClients.length === 0) return '';
 
     switch (format) {
       case 'detailed': {
-        return selectedClients
-          .map((c, index) => {
-            const formattedDate = c.dueDate ? formatDateTimeBR(c.dueDate) : 'Sem data de vencimento';
-            const formattedPhone = c.phone ? formatPhoneNumber(c.phone) : 'Sem telefone';
-            const notesLine = c.notes ? `\nObservações: ${c.notes}` : '';
-            return `${index + 1}. ${c.name}\nTelefone: ${formattedPhone}\nVencimento: ${formattedDate}${notesLine}`;
-          })
-          .join('\n\n');
+        return formatClientsListForCopy(uniqueClients);
       }
 
       case 'single-line': {
-        return selectedClients
+        return uniqueClients
           .map((c) => {
-            const formattedDate = c.dueDate ? formatDateTimeBR(c.dueDate) : 'Sem vencimento';
-            const formattedPhone = c.phone ? formatPhoneNumber(c.phone) : 'Sem telefone';
-            return `${c.name} - ${formattedPhone} - ${formattedDate}`;
+            const cleanName = (c.name || '').trim();
+            const dateStr = c.dueDate ? dateBR(c.dueDate.split('T')[0]) : '';
+            const cleanPhone = (c.phone || '').replace(/\D/g, '');
+            return `${cleanName} - ${cleanPhone} - ${dateStr}`;
           })
           .join('\n');
       }
 
       case 'pipe': {
-        return selectedClients
+        return uniqueClients
           .map((c) => {
-            const formattedDate = c.dueDate ? formatDateTimeBR(c.dueDate) : 'Sem vencimento';
-            const formattedPhone = c.phone ? formatPhoneNumber(c.phone) : 'Sem telefone';
-            return `${c.name} | ${formattedPhone} | ${formattedDate}`;
+            const cleanName = (c.name || '').trim();
+            const dateStr = c.dueDate ? dateBR(c.dueDate.split('T')[0]) : '';
+            const cleanPhone = (c.phone || '').replace(/\D/g, '');
+            return `${cleanName} | ${cleanPhone} | ${dateStr}`;
           })
           .join('\n');
       }
 
       case 'csv': {
-        const header = 'Nome,Telefone,Data de Vencimento,Observacoes';
-        const rows = selectedClients.map((c) => {
+        const header = 'Nome,Telefone,Data de Vencimento';
+        const rows = uniqueClients.map((c) => {
           const nameSafe = `"${(c.name || '').replace(/"/g, '""')}"`;
-          const phoneSafe = `"${(c.phone ? formatPhoneNumber(c.phone) : '').replace(/"/g, '""')}"`;
-          const dateSafe = `"${(c.dueDate ? formatDateTimeBR(c.dueDate) : '').replace(/"/g, '""')}"`;
-          const notesSafe = `"${(c.notes || '').replace(/"/g, '""')}"`;
-          return `${nameSafe},${phoneSafe},${dateSafe},${notesSafe}`;
+          const cleanPhone = (c.phone || '').replace(/\D/g, '');
+          const phoneSafe = `"${cleanPhone.replace(/"/g, '""')}"`;
+          const dateStr = c.dueDate ? dateBR(c.dueDate.split('T')[0]) : '';
+          const dateSafe = `"${dateStr.replace(/"/g, '""')}"`;
+          return `${nameSafe},${phoneSafe},${dateSafe}`;
         });
         return [header, ...rows].join('\n');
       }
 
       case 'json': {
-        const data = selectedClients.map((c) => ({
-          name: c.name,
-          phone: c.phone || '',
-          dueDate: c.dueDate || '',
-          dueDateFormatted: c.dueDate ? formatDateTimeBR(c.dueDate) : '',
-          notes: c.notes || '',
+        const data = uniqueClients.map((c) => ({
+          name: (c.name || '').trim(),
+          phone: (c.phone || '').replace(/\D/g, ''),
+          dueDate: c.dueDate ? dateBR(c.dueDate.split('T')[0]) : '',
         }));
         return JSON.stringify(data, null, 2);
       }
@@ -82,7 +78,8 @@ export const ExportClientsModal: React.FC<ExportClientsModalProps> = ({
       default:
         return '';
     }
-  }, [selectedClients, format]);
+  }, [uniqueClients, format]);
+
 
   if (!isOpen) return null;
 
