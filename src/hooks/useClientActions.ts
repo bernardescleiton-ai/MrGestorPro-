@@ -209,60 +209,11 @@ export const useClientActions = ({
         }
       }
 
-      // 2. Process toCreate items: if matches existing client, UPDATE it; otherwise CREATE
+      // 2. Process toCreate items: create new client record for each item as requested
       for (const clientData of toCreate) {
         const trimmedName = clientData.name.trim();
-        const existing = isDuplicateClientName(trimmedName, updatedClients, undefined, clientData.phone);
+        if (!trimmedName) continue;
 
-        if (existing) {
-          // Update the existing client instead of dropping or duplicating
-          const cIndex = updatedClients.findIndex((c) => c.id === existing.id);
-          if (cIndex !== -1) {
-            updatedClients[cIndex] = {
-              ...updatedClients[cIndex],
-              ...(clientData.phone ? { phone: clientData.phone } : {}),
-              ...(clientData.dueDate ? { dueDate: clientData.dueDate } : {}),
-              ...(clientData.notes ? { notes: clientData.notes } : {}),
-            };
-            actualUpdatedCount++;
-
-            if (clientData.dueDate) {
-              const [datePart, timePart] = clientData.dueDate.includes('T')
-                ? clientData.dueDate.split('T')
-                : [clientData.dueDate, ''];
-              let foundUnpaid = false;
-              updatedCharges = updatedCharges.map((ch) => {
-                if (ch.clientId === existing.id && !ch.paid) {
-                  if (!foundUnpaid) {
-                    foundUnpaid = true;
-                    return { ...ch, dueDate: datePart, dueTime: timePart || undefined };
-                  }
-                  return null as any;
-                }
-                return ch;
-              }).filter(Boolean);
-
-              if (!foundUnpaid) {
-                updatedCharges = [
-                  {
-                    id: generateUUID(),
-                    clientId: existing.id,
-                    amount: 0,
-                    dueDate: datePart,
-                    dueTime: timePart || undefined,
-                    paid: false,
-                    note: 'Vencimento do Cliente',
-                    createdAt: new Date().toISOString(),
-                  },
-                  ...updatedCharges,
-                ];
-              }
-            }
-          }
-          continue;
-        }
-
-        // Truly new client
         const targetClientId = generateUUID();
         updatedClients = [
           { id: targetClientId, ...clientData, name: trimmedName, createdAt: new Date().toISOString() },
