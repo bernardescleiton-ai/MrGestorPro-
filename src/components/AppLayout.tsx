@@ -157,6 +157,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             clients={data.clients}
             charges={data.charges}
             settings={data.settings}
+            sentLogs={data.sentLogs}
             initialFilter={dueTabFilter}
             onMarkPaid={handleMarkPaid}
             onUndoPaid={handleUndoPaid}

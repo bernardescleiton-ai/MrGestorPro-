@@ -1,4 +1,4 @@
-import { Client, Charge, CompanySettings } from '../types';
+import { Client, Charge, CompanySettings, SentMessageLog } from '../types';
 import { encodeForWhatsApp, openWhatsAppLink, openDirectWhatsApp } from './whatsappHelpers';
 import {
   parseAnyDateToParts,
@@ -204,4 +204,101 @@ export const formatClientForCopy = (c: Client): string => {
 export const formatClientsListForCopy = (clients: Client[]): string => {
   const uniqueClients = deduplicateClients(clients);
   return uniqueClients.map(formatClientForCopy).filter(Boolean).join('\n\n');
+};
+
+import {
+  buildClientLookupContext,
+  resolveClientForCharge,
+  cleanPhoneNumber,
+  cleanClientName,
+  ClientLookupContext,
+} from './clientResolver';
+
+export const deduplicatePaidCharges = (
+  paidCharges: Charge[],
+  clientMapOrContext: Map<string, Client> | ClientLookupContext,
+  clients?: Client[],
+  sentLogs?: SentMessageLog[]
+): Charge[] => {
+  if (!Array.isArray(paidCharges) || paidCharges.length === 0) return [];
+
+  const ctx: ClientLookupContext =
+    'idMap' in clientMapOrContext
+      ? (clientMapOrContext as ClientLookupContext)
+      : buildClientLookupContext(
+          clients || Array.from(clientMapOrContext.values()),
+          sentLogs
+        );
+
+  const bestChargeByClient = new Map<string, { charge: Charge; client: Client }>();
+
+  for (let i = 0; i < paidCharges.length; i++) {
+    const ch = paidCharges[i];
+    if (!ch) continue;
+
+    const cl = resolveClientForCharge(ch, ctx, clients, sentLogs);
+
+    // If charge has NO matching client in clients, logs, or note, skip it so
+    // it never pollutes the Completed tab with 'Cliente sem cadastro'
+    if (!cl || !cl.name || cl.name.trim() === '') {
+      continue;
+    }
+
+    const cleanPhone = cleanPhoneNumber(cl.phone);
+    const cleanName = cleanClientName(cl.name);
+    let clientKey = '';
+    if (cleanPhone.length >= 8) {
+      clientKey = `phone_${cleanPhone}`;
+    } else if (cleanName) {
+      clientKey = `name_${cleanName}`;
+    } else if (cl.id) {
+      clientKey = `id_${cl.id}`;
+    }
+
+    if (!clientKey) {
+      continue;
+    }
+
+    // Ensure charge references the canonical client ID
+    const normalizedCharge: Charge = ch.clientId === cl.id ? ch : { ...ch, clientId: cl.id };
+
+    const existing = bestChargeByClient.get(clientKey);
+    if (!existing) {
+      bestChargeByClient.set(clientKey, { charge: normalizedCharge, client: cl });
+    } else {
+      const dateExisting = (existing.charge.dueDate || '') + (existing.charge.dueTime ? `T${existing.charge.dueTime}` : '');
+      const dateCurrent = (normalizedCharge.dueDate || '') + (normalizedCharge.dueTime ? `T${normalizedCharge.dueTime}` : '');
+
+      if (dateCurrent > dateExisting) {
+        bestChargeByClient.set(clientKey, { charge: normalizedCharge, client: cl });
+      } else if (dateCurrent === dateExisting) {
+        const paidExisting = existing.charge.paidAt || existing.charge.createdAt || '';
+        const paidCurrent = normalizedCharge.paidAt || normalizedCharge.createdAt || '';
+        if (paidCurrent >= paidExisting) {
+          bestChargeByClient.set(clientKey, { charge: normalizedCharge, client: cl });
+        }
+      }
+    }
+  }
+
+  const result: Charge[] = [];
+  for (const { charge: ch, client: cl } of bestChargeByClient.values()) {
+    if (cl?.dueDate) {
+      const [clientDate, clientTime] = cl.dueDate.includes('T') ? cl.dueDate.split('T') : [cl.dueDate, ''];
+      const currentChargeDate = (ch.dueDate || '') + (ch.dueTime ? `T${ch.dueTime}` : '');
+      const clientFullDate = clientDate + (clientTime ? `T${clientTime}` : '');
+
+      if (clientFullDate > currentChargeDate) {
+        result.push({
+          ...ch,
+          dueDate: clientDate,
+          dueTime: clientTime || ch.dueTime || undefined,
+        });
+        continue;
+      }
+    }
+    result.push(ch);
+  }
+
+  return result;
 };

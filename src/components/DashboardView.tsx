@@ -29,7 +29,9 @@ import {
   openWhatsApp,
   formatClientForCopy,
   deduplicateClients,
+  deduplicatePaidCharges,
 } from '../utils/formatters';
+import { buildClientLookupContext, resolveClientForCharge } from '../utils/clientResolver';
 import { DueTabFilter } from './DueView';
 
 interface DashboardViewProps {
@@ -61,18 +63,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [tabSearch, setTabSearch] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Fast client map lookup & precomputed charges
+  // Fast client lookup context & precomputed charges
   const {
+    clientLookup,
     clientMap,
     allPendingCharges,
     paidCharges,
     metrics,
   } = useMemo(() => {
-    const map = new Map<string, Client>();
-    for (let i = 0; i < clients.length; i++) {
-      const c = clients[i];
-      if (c && c.id) map.set(c.id, c);
-    }
+    const lookup = buildClientLookupContext(clients, data.sentLogs);
+    const map = lookup.idMap;
 
     const overdueChargeClientIds = getOverdueChargeClientIds(charges);
 
@@ -87,17 +87,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     // Unpaid and paid charges separation
     const chargeClientIds = new Set<string>();
     const pendingList: Charge[] = [];
-    const paidList: Charge[] = [];
+    const rawPaidList: Charge[] = [];
 
     for (let i = 0; i < charges.length; i++) {
       const c = charges[i];
       if (c.paid) {
-        paidList.push(c);
+        rawPaidList.push(c);
       } else {
         pendingList.push(c);
         chargeClientIds.add(c.clientId);
       }
     }
+
+    // Deduplicate paid charges per client: keep only the one with the newest date without duplicates
+    const paidList = deduplicatePaidCharges(rawPaidList, lookup, clients, data.sentLogs);
 
     // Virtual charges for clients with dueDate and no unpaid charge
     const virtualCharges: Charge[] = [];
@@ -129,7 +132,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     for (let i = 0; i < pendingAll.length; i++) {
       const ch = pendingAll[i];
-      const cl = map.get(ch.clientId);
+      const cl = resolveClientForCharge(ch, lookup, clients, data.sentLogs);
       const dateToEval = ch.dueDate || (cl?.dueDate ? (cl.dueDate.includes('T') ? cl.dueDate.split('T')[0] : cl.dueDate) : undefined);
       const diff = getDaysUntilDue(dateToEval);
 
@@ -143,6 +146,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const completedCount = paidList.length;
 
     return {
+      clientLookup: lookup,
       clientMap: map,
       allPendingCharges: pendingAll,
       paidCharges: paidList,
@@ -157,7 +161,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         totalPendingCount: pendingAll.length,
       },
     };
-  }, [clients, charges]);
+  }, [clients, charges, data.sentLogs]);
 
   const {
     activeClientsCount,
@@ -175,14 +179,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     let list: Charge[] = [];
 
     if (activeDashboardTab === 'completed') {
-      list = [...paidCharges].sort((a, b) => {
-        const dtA = a.paidAt || a.dueDate || '';
-        const dtB = b.paidAt || b.dueDate || '';
-        return dtB.localeCompare(dtA);
-      });
+      list = [...paidCharges]
+        .filter((ch) => {
+          const cl = resolveClientForCharge(ch, clientLookup, clients, data.sentLogs);
+          return Boolean(cl && cl.name && cl.name.trim() !== '');
+        })
+        .sort((a, b) => {
+          const dtA = (a.dueDate || '') + (a.dueTime ? `T${a.dueTime}` : '');
+          const dtB = (b.dueDate || '') + (b.dueTime ? `T${b.dueTime}` : '');
+          if (dtB !== dtA) return dtB.localeCompare(dtA);
+          const paidA = a.paidAt || a.createdAt || '';
+          const paidB = b.paidAt || b.createdAt || '';
+          return paidB.localeCompare(paidA);
+        });
     } else {
       list = allPendingCharges.filter((ch) => {
-        const cl = clientMap.get(ch.clientId);
+        const cl = resolveClientForCharge(ch, clientLookup, clients, data.sentLogs);
         const dateToEval = ch.dueDate || (cl?.dueDate ? (cl.dueDate.includes('T') ? cl.dueDate.split('T')[0] : cl.dueDate) : undefined);
         const diff = getDaysUntilDue(dateToEval);
 
@@ -204,13 +216,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     const term = tabSearch.toLowerCase().trim();
     return list.filter((ch) => {
-      const client = clientMap.get(ch.clientId);
+      const client = resolveClientForCharge(ch, clientLookup, clients, data.sentLogs);
       const nameMatch = client?.name?.toLowerCase().includes(term);
       const phoneMatch = client?.phone?.includes(term);
       const noteMatch = ch.note?.toLowerCase().includes(term);
       return nameMatch || phoneMatch || noteMatch;
     });
-  }, [activeDashboardTab, allPendingCharges, paidCharges, clientMap, tabSearch]);
+  }, [activeDashboardTab, allPendingCharges, paidCharges, clientLookup, clients, data.sentLogs, tabSearch]);
 
   const handleCopyClient = async (client: Client) => {
     try {
@@ -694,9 +706,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           ) : (
             currentTabCharges.map((ch) => {
-              const client = clientMap.get(ch.clientId);
+              const client = resolveClientForCharge(ch, clientLookup, clients, data.sentLogs);
               const isPaid = Boolean(ch.paid);
               const statusBadge = getClientStatusBadge(ch.dueDate + (ch.dueTime ? `T${ch.dueTime}` : ''));
+              const clientDisplayName =
+                client?.name ||
+                (ch.note && ch.note !== 'Vencimento do Cliente' && ch.note !== 'Mensalidade do Cliente'
+                  ? ch.note
+                  : 'Cliente');
 
               return (
                 <div
@@ -714,7 +731,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="space-y-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-slate-900 text-sm truncate">
-                        {client ? client.name : 'Cliente sem cadastro'}
+                        {clientDisplayName}
                       </span>
                       {isPaid ? (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
@@ -729,7 +746,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono">
                       <span>
-                        Vencimento: <strong className="text-slate-800">{dateBR(ch.dueDate)}{ch.dueTime ? ` às ${ch.dueTime}` : ''}</strong>
+                        Vencimento: <strong className="text-slate-800">{dateBR(ch.dueDate || (client?.dueDate ? (client.dueDate.includes('T') ? client.dueDate.split('T')[0] : client.dueDate) : ''))}{ch.dueTime ? ` às ${ch.dueTime}` : (client?.dueDate && client.dueDate.includes('T') ? ` às ${client.dueDate.split('T')[1]}` : '')}</strong>
                       </span>
                       {isPaid && ch.paidAt && (
                         <span className="text-emerald-700 font-medium">

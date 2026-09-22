@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Bell, RefreshCw, Calendar, Clock, AlertTriangle, AlertCircle, Search, CheckCircle2, MessageSquare, Phone, Trash2, CheckSquare, Square, Edit, ChevronLeft, ChevronRight, Copy, Download, Check } from 'lucide-react';
-import { Client, Charge, CompanySettings } from '../types';
-import { dateBR, formatDateTimeBR, getChargeStatus, getDaysUntilDue, getClientStatusBadge, openWhatsApp, formatPhoneNumber, deduplicateClients, formatClientForCopy, formatClientsListForCopy } from '../utils/formatters';
+import { Client, Charge, CompanySettings, SentMessageLog } from '../types';
+import { dateBR, formatDateTimeBR, getChargeStatus, getDaysUntilDue, getClientStatusBadge, openWhatsApp, formatPhoneNumber, deduplicateClients, formatClientForCopy, formatClientsListForCopy, deduplicatePaidCharges } from '../utils/formatters';
+import { buildClientLookupContext, resolveClientForCharge } from '../utils/clientResolver';
 import { ExportClientsModal } from './ExportClientsModal';
 
 export type DueTabFilter = 'today' | 'in_1_day' | 'in_3_days' | 'late_1_day' | 'overdue_5_days' | 'all_late' | 'completed' | 'all';
@@ -10,6 +11,7 @@ interface DueViewProps {
   clients: Client[];
   charges: Charge[];
   settings: CompanySettings;
+  sentLogs?: SentMessageLog[];
   initialFilter?: DueTabFilter;
   onMarkPaid: (chargeId: string) => void;
   onUndoPaid?: (chargeId: string) => void;
@@ -24,6 +26,7 @@ export const DueView: React.FC<DueViewProps> = ({
   clients,
   charges,
   settings,
+  sentLogs,
   initialFilter = 'today',
   onMarkPaid,
   onUndoPaid,
@@ -115,15 +118,13 @@ export const DueView: React.FC<DueViewProps> = ({
     }
   };
 
-  const clientMap = useMemo(() => {
-    const map = new Map<string, Client>();
-    safeClients.forEach((c) => {
-      if (c && c.id) map.set(c.id, c);
-    });
-    return map;
-  }, [safeClients]);
+  const clientLookup = useMemo(() => {
+    return buildClientLookupContext(safeClients, sentLogs);
+  }, [safeClients, sentLogs]);
 
-  const getClient = (clientId: string) => clientMap.get(clientId);
+  const clientMap = clientLookup.idMap;
+
+  const getClient = (clientId: string) => clientLookup.idMap.get(clientId);
 
   // Gather all pending charges
   const chargeClientIds = useMemo(() => {
@@ -159,7 +160,7 @@ export const DueView: React.FC<DueViewProps> = ({
 
   // Helper to compute day difference for a charge/client using fast O(1) map
   const getItemDaysDiff = (ch: Charge): number | null => {
-    const client = clientMap.get(ch.clientId);
+    const client = resolveClientForCharge(ch, clientLookup, safeClients, sentLogs);
     const dateToEvaluate = ch.dueDate || client?.dueDate?.split('T')[0];
     return getDaysUntilDue(dateToEvaluate);
   };
@@ -184,10 +185,10 @@ export const DueView: React.FC<DueViewProps> = ({
       if (diff !== null && diff < 0) allLate++;
     }
 
-    const completed = safeCharges.filter((c) => c.paid).length;
+    const completed = deduplicatePaidCharges(safeCharges.filter((c) => c.paid), clientLookup, safeClients, sentLogs).length;
 
     return { today, in1Day, in3Days, late1Day, overdue5Days, allLate, completed };
-  }, [allPendingItems, safeCharges, clientMap]);
+  }, [allPendingItems, safeCharges, clientLookup, safeClients, sentLogs]);
 
   const {
     today: todayCount,
@@ -203,7 +204,7 @@ export const DueView: React.FC<DueViewProps> = ({
   // Filter items based on active tab
   const tabFilteredItems = useMemo(() => {
     if (activeTab === 'completed') {
-      return safeCharges.filter((c) => c.paid);
+      return deduplicatePaidCharges(safeCharges.filter((c) => c.paid), clientLookup, safeClients, sentLogs);
     }
     return allPendingItems.filter((ch) => {
       const diff = getItemDaysDiff(ch);
@@ -215,7 +216,7 @@ export const DueView: React.FC<DueViewProps> = ({
       if (activeTab === 'all_late') return diff !== null && diff < 0;
       return true; // 'all'
     });
-  }, [allPendingItems, safeCharges, activeTab, clientMap]);
+  }, [allPendingItems, safeCharges, activeTab, clientLookup, safeClients, sentLogs]);
 
   // Apply search query filter
   const displayedItems = useMemo(() => {
@@ -223,7 +224,7 @@ export const DueView: React.FC<DueViewProps> = ({
     return tabFilteredItems
       .filter((ch) => {
         if (!term) return true;
-        const client = clientMap.get(ch.clientId);
+        const client = resolveClientForCharge(ch, clientLookup, safeClients, sentLogs);
         const nameMatch = client?.name?.toLowerCase().includes(term);
         const phoneMatch = client?.phone?.includes(term);
         const noteMatch = ch.note?.toLowerCase().includes(term);
@@ -231,15 +232,18 @@ export const DueView: React.FC<DueViewProps> = ({
       })
       .sort((a, b) => {
         if (activeTab === 'completed') {
-          const dtA = a.paidAt || a.dueDate || '';
-          const dtB = b.paidAt || b.dueDate || '';
-          return dtB.localeCompare(dtA);
+          const dtA = (a.dueDate || '') + (a.dueTime ? `T${a.dueTime}` : '');
+          const dtB = (b.dueDate || '') + (b.dueTime ? `T${b.dueTime}` : '');
+          if (dtB !== dtA) return dtB.localeCompare(dtA);
+          const paidA = a.paidAt || a.createdAt || '';
+          const paidB = b.paidAt || b.createdAt || '';
+          return paidB.localeCompare(paidA);
         }
         const dtA = (a.dueDate || '') + (a.dueTime ? `T${a.dueTime}` : '');
         const dtB = (b.dueDate || '') + (b.dueTime ? `T${b.dueTime}` : '');
         return dtA.localeCompare(dtB);
       });
-  }, [tabFilteredItems, search, activeTab, clientMap]);
+  }, [tabFilteredItems, search, activeTab, clientLookup, safeClients, sentLogs]);
 
   // Reset page on search or tab change
   useEffect(() => {
@@ -756,11 +760,16 @@ export const DueView: React.FC<DueViewProps> = ({
           ) : (
             <div className="space-y-3">
               {paginatedDisplayedItems.map((ch) => {
-                const client = clientMap.get(ch.clientId);
+                const client = resolveClientForCharge(ch, clientLookup, safeClients, sentLogs);
                 const daysDiff = getItemDaysDiff(ch);
                 const statusBadge = getClientStatusBadge(ch.dueDate + (ch.dueTime ? `T${ch.dueTime}` : ''));
                 const isPaid = Boolean(ch.paid);
                 const isSelected = client ? selectedClientIds.includes(client.id) : false;
+                const clientDisplayName =
+                  client?.name ||
+                  (ch.note && ch.note !== 'Vencimento do Cliente' && ch.note !== 'Mensalidade do Cliente'
+                    ? ch.note
+                    : 'Cliente');
 
                 return (
                   <div
@@ -794,7 +803,7 @@ export const DueView: React.FC<DueViewProps> = ({
                       <div className="space-y-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-bold text-slate-900 text-sm truncate">
-                            {client ? client.name : 'Cliente sem cadastro'}
+                            {clientDisplayName}
                           </span>
                           {isPaid ? (
                             <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
@@ -809,7 +818,7 @@ export const DueView: React.FC<DueViewProps> = ({
 
                         <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono">
                           <span>
-                            Vencimento: <strong className="text-slate-800">{dateBR(ch.dueDate)}{ch.dueTime ? ` às ${ch.dueTime}` : ''}</strong>
+                            Vencimento: <strong className="text-slate-800">{dateBR(ch.dueDate || (client?.dueDate ? (client.dueDate.includes('T') ? client.dueDate.split('T')[0] : client.dueDate) : ''))}{ch.dueTime ? ` às ${ch.dueTime}` : (client?.dueDate && client.dueDate.includes('T') ? ` às ${client.dueDate.split('T')[1]}` : '')}</strong>
                           </span>
                           {isPaid && ch.paidAt && (
                             <span className="text-emerald-700 font-medium">
