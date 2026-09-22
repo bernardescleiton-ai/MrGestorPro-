@@ -52,16 +52,27 @@ export const RenewalModal: React.FC<RenewalModalProps> = ({
   const generateDefaultMessage = (clientObj: Client, dueDateStr: string, amountStr: string): string => {
     const formattedDate = formatDateTimeBR(dueDateStr);
     const parsedAmount = parseFloat(amountStr.replace(',', '.')) || 0;
-    const valText = parsedAmount > 0 ? `\n💰 *Valor:* R$ ${parsedAmount.toFixed(2).replace('.', ',')}` : '';
+    const valText = parsedAmount > 0 ? `R$ ${parsedAmount.toFixed(2).replace('.', ',')}` : '';
 
     if (settings?.renewalMessageTemplate && settings.renewalMessageTemplate.trim()) {
-      return settings.renewalMessageTemplate
-        .replace(/{nome}/g, clientObj.name)
-        .replace(/{vencimento}/g, formattedDate)
-        .replace(/{valor}/g, valText);
+      let msg = settings.renewalMessageTemplate
+        .replace(/{nome}|{cliente}/gi, () => clientObj.name || '')
+        .replace(/{vencimento}|{venc}|{data}/gi, () => formattedDate || '')
+        .replace(/{valor}|{quantia}/gi, () => valText)
+        .replace(/{empresa}/gi, () => settings?.name || '')
+        .replace(/{pix}|{chavepix}|{chave_pix}/gi, () => settings?.pixKey || '');
+
+      if (msg.includes('*vencimento*')) {
+        msg = msg.replace(/\*vencimento\*/gi, () => `*${formattedDate}*`);
+      }
+      if (msg.includes('*nome*') || msg.includes('*cliente*')) {
+        msg = msg.replace(/\*nome\*|\*cliente\*/gi, () => `*${clientObj.name}*`);
+      }
+      return msg;
     }
 
-    return `Olá, *${clientObj.name}*! Sua renovação de acesso foi realizada com sucesso!\n\n📅 *Novo Vencimento:* ${formattedDate}${valText}\n\nAgradecemos a preferência!`;
+    const valLine = valText ? `\n💰 *Valor:* ${valText}` : '';
+    return `Olá, *${clientObj.name}*! Sua renovação de acesso foi realizada com sucesso!\n\n📅 *Novo Vencimento:* ${formattedDate}${valLine}\n\nAgradecemos a preferência!`;
   };
 
   useEffect(() => {

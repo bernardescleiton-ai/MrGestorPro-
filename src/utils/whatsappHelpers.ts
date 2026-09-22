@@ -1,10 +1,15 @@
 import { Client, CompanySettings } from '../types';
-import { normalizePhone, formatDateTimeBR } from './formatters';
+import { formatDateTimeBR, getDaysUntilDue, dateBR } from './dateFormatters';
+
+const normalizePhoneDigits = (p: string): string => {
+  if (!p) return '';
+  return p.replace(/\D/g, '');
+};
 
 export const getWhatsAppFullPhone = (phoneInput: string): string => {
   if (!phoneInput) return '';
   const trimmed = String(phoneInput).trim();
-  const digits = normalizePhone(trimmed);
+  const digits = normalizePhoneDigits(trimmed);
   if (!digits) return '';
 
   const hasPlus = trimmed.startsWith('+') || trimmed.startsWith('00');
@@ -140,19 +145,48 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
 };
 
 export const openDirectWhatsApp = (client: Client, settings: CompanySettings): void => {
-  const defaultTemplate = 'Olá, {nome}! Tudo bem?\n\nPassando para lembrar sobre o seu vencimento cadastrado para: *{vencimento}*.';
-  const template = settings?.messageTemplate && settings.messageTemplate.trim()
-    ? settings.messageTemplate 
-    : defaultTemplate;
+  const fullDueDate = client.dueDate || '';
+  const dueDiff = fullDueDate ? getDaysUntilDue(fullDueDate) : null;
+  const isOverdue = dueDiff !== null && dueDiff < 0;
+  const isOverdue5Days = dueDiff !== null && dueDiff <= -5;
 
-  const dueDateFormatted = client.dueDate ? formatDateTimeBR(client.dueDate) : 'a definir';
+  const legacySettings = settings as Record<string, string | undefined>;
+  const customOverdue5 = settings?.overdue5DaysMessageTemplate?.trim() || legacySettings?.templateExpired?.trim() || legacySettings?.overdueMessageTemplate?.trim();
+  const customStandard = settings?.messageTemplate?.trim() || legacySettings?.templateDue?.trim();
+
+  let template = '';
+  if (isOverdue5Days && customOverdue5) {
+    template = customOverdue5;
+  } else if (customStandard) {
+    template = customStandard;
+  } else if (isOverdue && customOverdue5) {
+    template = customOverdue5;
+  } else {
+    if (isOverdue) {
+      template = 'Olá {nome}! Tudo bem?\n\nPassando para avisar que o seu vencimento cadastrado para {vencimento} está pendente.\n\nChave PIX: {pix}\n\nAtenciosamente, {empresa}.';
+    } else {
+      template = 'Olá {nome}! Tudo bem?\n\nPassando para lembrar sobre o seu vencimento cadastrado para: {vencimento}.\n\nChave PIX: {pix}\n\nAtenciosamente, {empresa}.';
+    }
+  }
+
+  const dueDateFormatted = fullDueDate
+    ? (fullDueDate.includes('T') || fullDueDate.includes(':') ? formatDateTimeBR(fullDueDate) : dateBR(fullDueDate))
+    : 'a definir';
+  const empresaStr = settings?.name || '';
+  const pixStr = settings?.pixKey || '';
+  const phoneStr = settings?.phone || '';
+  const addressStr = settings?.address || '';
+  const noteText = client.notes || '';
+
   let msg = template
     .replace(/{nome}|{cliente}/gi, () => client.name || '')
     .replace(/{vencimento}|{venc}|{data}/gi, () => dueDateFormatted || '')
-    .replace(/{empresa}/gi, () => settings?.name || '')
-    .replace(/{pix}/gi, () => settings?.pixKey || '')
+    .replace(/{empresa}/gi, () => empresaStr)
+    .replace(/{pix}|{chavepix}|{chave_pix}/gi, () => pixStr)
+    .replace(/{telefone}|{contato}|{whatsapp}/gi, () => phoneStr)
+    .replace(/{endereco}/gi, () => addressStr)
     .replace(/{valor}|{quantia}/gi, () => '')
-    .replace(/{nota}|{observacao}/gi, () => '');
+    .replace(/{nota}|{observacao}|{obs}/gi, () => noteText);
 
   if (msg.includes('*vencimento*')) {
     msg = msg.replace(/\*vencimento\*/gi, () => `*${dueDateFormatted}*`);
@@ -160,9 +194,12 @@ export const openDirectWhatsApp = (client: Client, settings: CompanySettings): v
   if (msg.includes('*nome*') || msg.includes('*cliente*')) {
     msg = msg.replace(/\*nome\*|\*cliente\*/gi, () => `*${client.name}*`);
   }
+  if (msg.includes('*pix*')) {
+    msg = msg.replace(/\*pix\*/gi, () => (pixStr ? `*${pixStr}*` : ''));
+  }
 
-  if (settings?.signature) {
-    msg += `\n\n${settings.signature}`;
+  if (settings?.signature && settings.signature.trim() && !msg.includes(settings.signature.trim())) {
+    msg += `\n\n${settings.signature.trim()}`;
   }
 
   openWhatsAppLink(client.phone, msg, settings);

@@ -104,23 +104,50 @@ export const formatPhoneNumber = (phone: string): string => {
 };
 
 export const getDefaultMessage = (client: Client, charge: Charge | null | undefined, settings: CompanySettings): string => {
-  const chargeDiff = charge && !charge.paid && charge.dueDate ? getDaysUntilDue(charge.dueDate) : null;
-  const isExpired = chargeDiff !== null && chargeDiff < 0;
-  const tpl = isExpired && settings?.templateExpired ? settings.templateExpired : (settings?.templateDue || 'Olá {nome}, seu vencimento é dia {vencimento}.');
-
   const fullDueDate = charge?.dueDate || client.dueDate || '';
-  const dueStr = fullDueDate ? dateBR(fullDueDate) : 'a combinar';
-  const valStr = charge ? brl(charge.amount) : 'R$ 0,00';
+  const dueDiff = fullDueDate ? getDaysUntilDue(fullDueDate) : null;
+  const isOverdue = dueDiff !== null && dueDiff < 0;
+  const isOverdue5Days = dueDiff !== null && dueDiff <= -5;
+
+  const legacySettings = settings as Record<string, string | undefined>;
+  const customOverdue5 = settings?.overdue5DaysMessageTemplate?.trim() || legacySettings?.templateExpired?.trim() || legacySettings?.overdueMessageTemplate?.trim();
+  const customStandard = settings?.messageTemplate?.trim() || legacySettings?.templateDue?.trim();
+
+  let tpl = '';
+  if (isOverdue5Days && customOverdue5) {
+    tpl = customOverdue5;
+  } else if (customStandard) {
+    tpl = customStandard;
+  } else if (isOverdue && customOverdue5) {
+    tpl = customOverdue5;
+  } else {
+    // Default fallback messages if user left template empty
+    if (isOverdue) {
+      tpl = 'Olá {nome}! Tudo bem?\n\nPassando para avisar que o seu vencimento cadastrado para {vencimento} está pendente.\n\nChave PIX: {pix}\n\nAtenciosamente, {empresa}.';
+    } else {
+      tpl = 'Olá {nome}! Tudo bem?\n\nPassando para lembrar sobre o seu vencimento cadastrado para: {vencimento}.\n\nChave PIX: {pix}\n\nAtenciosamente, {empresa}.';
+    }
+  }
+
+  const dueStr = fullDueDate
+    ? (fullDueDate.includes('T') || fullDueDate.includes(':') ? formatDateTimeBR(fullDueDate) : dateBR(fullDueDate))
+    : 'a combinar';
+  const valStr = charge?.amount ? brl(charge.amount) : '';
   const noteText = charge?.note || client.notes || '';
+  const empresaStr = settings?.name || '';
+  const pixStr = settings?.pixKey || '';
+  const phoneStr = settings?.phone || '';
+  const addressStr = settings?.address || '';
 
   let msg = tpl
-    .replace(/{nome}|{cliente}/gi, () => client.name)
-    .replace(/{vencimento}/gi, () => dueStr)
-    .replace(/{valor}/gi, () => valStr)
-    .replace(/{empresa}/gi, () => settings?.name || 'Nossa Empresa')
-    .replace(/{pix}/gi, () => settings?.pixKey || '')
-    .replace(/{telefone}|{contato}/gi, () => settings?.phone || '')
-    .replace(/{nota}|{observacao}/gi, () => noteText || '');
+    .replace(/{nome}|{cliente}/gi, () => client.name || '')
+    .replace(/{vencimento}|{venc}|{data}/gi, () => dueStr)
+    .replace(/{valor}|{quantia}/gi, () => valStr)
+    .replace(/{empresa}/gi, () => empresaStr)
+    .replace(/{pix}|{chavepix}|{chave_pix}/gi, () => pixStr)
+    .replace(/{telefone}|{contato}|{whatsapp}/gi, () => phoneStr)
+    .replace(/{endereco}/gi, () => addressStr)
+    .replace(/{nota}|{observacao}|{obs}/gi, () => noteText);
 
   if (msg.includes('*vencimento*')) {
     msg = msg.replace(/\*vencimento\*/gi, () => `*${dueStr}*`);
@@ -128,9 +155,15 @@ export const getDefaultMessage = (client: Client, charge: Charge | null | undefi
   if (msg.includes('*nome*') || msg.includes('*cliente*')) {
     msg = msg.replace(/\*nome\*|\*cliente\*/gi, () => `*${client.name}*`);
   }
+  if (msg.includes('*valor*')) {
+    msg = msg.replace(/\*valor\*/gi, () => (valStr ? `*${valStr}*` : ''));
+  }
+  if (msg.includes('*pix*')) {
+    msg = msg.replace(/\*pix\*/gi, () => (pixStr ? `*${pixStr}*` : ''));
+  }
 
-  if (settings?.signature) {
-    msg += `\n\n${settings.signature}`;
+  if (settings?.signature && settings.signature.trim() && !msg.includes(settings.signature.trim())) {
+    msg += `\n\n${settings.signature.trim()}`;
   }
   return msg;
 };
