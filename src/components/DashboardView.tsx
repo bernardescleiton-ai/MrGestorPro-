@@ -29,7 +29,6 @@ import {
   openWhatsApp,
   formatClientForCopy,
   deduplicateClients,
-  deduplicatePaidCharges,
 } from '../utils/formatters';
 import { buildClientLookupContext, resolveClientForCharge } from '../utils/clientResolver';
 import { DueTabFilter } from './DueView';
@@ -84,23 +83,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       }
     }
 
-    // Unpaid and paid charges separation
+    // Unpaid charges
     const chargeClientIds = new Set<string>();
     const pendingList: Charge[] = [];
-    const rawPaidList: Charge[] = [];
 
     for (let i = 0; i < charges.length; i++) {
       const c = charges[i];
-      if (c.paid) {
-        rawPaidList.push(c);
-      } else {
+      if (!c.paid) {
         pendingList.push(c);
         chargeClientIds.add(c.clientId);
       }
     }
-
-    // Deduplicate paid charges per client: keep only the one with the newest date without duplicates
-    const paidList = deduplicatePaidCharges(rawPaidList, lookup, clients, data.sentLogs);
 
     // Virtual charges for clients with dueDate and no unpaid charge
     const virtualCharges: Charge[] = [];
@@ -128,7 +121,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     let dueTodayCount = 0;
     let dueLate1DayCount = 0;
     let overdueCount = 0;
-    let overdue5DaysCount = 0;
 
     for (let i = 0; i < pendingAll.length; i++) {
       const ch = pendingAll[i];
@@ -140,24 +132,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       if (diff === 0) dueTodayCount++;
       if (diff === -1) dueLate1DayCount++;
       if (diff !== null && diff < 0) overdueCount++;
-      if (diff !== null && diff <= -5) overdue5DaysCount++;
     }
-
-    const completedCount = paidList.length;
 
     return {
       clientLookup: lookup,
       clientMap: map,
       allPendingCharges: pendingAll,
-      paidCharges: paidList,
       metrics: {
         activeClientsCount,
         in1DayCount,
         dueTodayCount,
         dueLate1DayCount,
         overdueCount,
-        overdue5DaysCount,
-        completedCount,
         totalPendingCount: pendingAll.length,
       },
     };
@@ -169,31 +155,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     dueTodayCount,
     dueLate1DayCount,
     overdueCount,
-    overdue5DaysCount,
-    completedCount,
     totalPendingCount,
   } = metrics;
 
   // Filtered charges for the embedded tab view
   const currentTabCharges = useMemo(() => {
-    let list: Charge[] = [];
-
-    if (activeDashboardTab === 'completed') {
-      list = [...paidCharges]
-        .filter((ch) => {
-          const cl = resolveClientForCharge(ch, clientLookup, clients, data.sentLogs);
-          return Boolean(cl && cl.name && cl.name.trim() !== '');
-        })
-        .sort((a, b) => {
-          const dtA = (a.dueDate || '') + (a.dueTime ? `T${a.dueTime}` : '');
-          const dtB = (b.dueDate || '') + (b.dueTime ? `T${b.dueTime}` : '');
-          if (dtB !== dtA) return dtB.localeCompare(dtA);
-          const paidA = a.paidAt || a.createdAt || '';
-          const paidB = b.paidAt || b.createdAt || '';
-          return paidB.localeCompare(paidA);
-        });
-    } else {
-      list = allPendingCharges.filter((ch) => {
+    const list = allPendingCharges
+      .filter((ch) => {
         const cl = resolveClientForCharge(ch, clientLookup, clients, data.sentLogs);
         const dateToEval = ch.dueDate || (cl?.dueDate ? (cl.dueDate.includes('T') ? cl.dueDate.split('T')[0] : cl.dueDate) : undefined);
         const diff = getDaysUntilDue(dateToEval);
@@ -202,15 +170,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         if (activeDashboardTab === 'today') return diff === 0;
         if (activeDashboardTab === 'in_3_days') return diff !== null && diff >= 1 && diff <= 3;
         if (activeDashboardTab === 'late_1_day') return diff === -1;
-        if (activeDashboardTab === 'overdue_5_days') return diff !== null && diff <= -5;
         if (activeDashboardTab === 'all_late') return diff !== null && diff < 0;
         return true; // 'all'
-      }).sort((a, b) => {
+      })
+      .sort((a, b) => {
         const dtA = (a.dueDate || '') + (a.dueTime ? `T${a.dueTime}` : '');
         const dtB = (b.dueDate || '') + (b.dueTime ? `T${b.dueTime}` : '');
         return dtA.localeCompare(dtB);
       });
-    }
 
     if (!tabSearch.trim()) return list;
 
@@ -269,8 +236,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 3D Tactile Relief Buttons Grid - 2 per row on mobile, 4 on desktop */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-4.5">
+      {/* 3D Tactile Relief Buttons Grid - 2 on mobile, 3 on tablet, 6 on desktop */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 md:gap-4.5">
         {/* 1. Clientes Ativos */}
         <button
           type="button"
@@ -408,42 +375,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </button>
 
-        {/* 5. +5 Dias Vencidos */}
-        <button
-          type="button"
-          onClick={() => {
-            setActiveDashboardTab('overdue_5_days');
-            onNavigate('due', 'overdue_5_days');
-          }}
-          className="group relative flex flex-col justify-between p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-white via-purple-50/30 to-purple-100/40 text-left transition-all duration-150 border-t-2 border-t-white border-x border-purple-200/90 border-b-0 shadow-[0_6px_0_0_#e9d5ff,0_10px_20px_-3px_rgba(168,85,247,0.15)] hover:shadow-[0_8px_0_0_#c084fc,0_14px_24px_-4px_rgba(168,85,247,0.25)] hover:-translate-y-0.5 active:translate-y-1.5 active:shadow-[0_1px_0_0_#c084fc,0_3px_6px_rgba(0,0,0,0.1)] overflow-hidden cursor-pointer"
-        >
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-600 to-indigo-600" />
-
-          <div className="flex items-center justify-between w-full mb-2.5">
-            <div className="p-2 rounded-xl bg-purple-700 text-white shadow-[0_3px_0_0_#6b21a8,0_4px_8px_rgba(147,51,234,0.35)] transition-transform group-hover:scale-105">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-            <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold font-mono uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">
-              &gt; 5 Dias
-            </span>
-          </div>
-
-          <div>
-            <div className="text-[11px] font-bold text-purple-800 uppercase tracking-wider mb-0.5 truncate">
-              +5 Dias Vencidos
-            </div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-2xl font-black font-mono text-purple-700 tracking-tight">
-                {overdue5DaysCount}
-              </span>
-              <span className="text-[11px] font-bold text-purple-700 flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
-                Ver <ChevronRight className="w-3.5 h-3.5" />
-              </span>
-            </div>
-          </div>
-        </button>
-
-        {/* 6. Total Atrasados */}
+        {/* 5. Total Atrasados */}
         <button
           type="button"
           onClick={() => {
@@ -478,42 +410,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </button>
 
-        {/* 7. Concluídos / Pagos (NOVO) */}
-        <button
-          type="button"
-          onClick={() => {
-            setActiveDashboardTab('completed');
-            onNavigate('due', 'completed');
-          }}
-          className="group relative flex flex-col justify-between p-3.5 sm:p-4 rounded-2xl bg-gradient-to-b from-white via-emerald-50/40 to-emerald-100/50 text-left transition-all duration-150 border-t-2 border-t-white border-x border-emerald-200/90 border-b-0 shadow-[0_6px_0_0_#a7f3d0,0_10px_20px_-3px_rgba(16,185,129,0.18)] hover:shadow-[0_8px_0_0_#34d399,0_14px_24px_-4px_rgba(16,185,129,0.3)] hover:-translate-y-0.5 active:translate-y-1.5 active:shadow-[0_1px_0_0_#34d399,0_3px_6px_rgba(0,0,0,0.1)] overflow-hidden cursor-pointer"
-        >
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-green-500" />
-
-          <div className="flex items-center justify-between w-full mb-2.5">
-            <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-[0_3px_0_0_#047857,0_4px_8px_rgba(16,185,129,0.4)] transition-transform group-hover:scale-105">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-            <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold font-mono uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
-              Pagos
-            </span>
-          </div>
-
-          <div>
-            <div className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider mb-0.5 truncate">
-              Concluídos
-            </div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-2xl font-black font-mono text-emerald-700 tracking-tight">
-                {completedCount}
-              </span>
-              <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
-                Ver <ChevronRight className="w-3.5 h-3.5" />
-              </span>
-            </div>
-          </div>
-        </button>
-
-        {/* 8. Todos os Vencimentos */}
+        {/* 7. Todos os Vencimentos */}
         <button
           type="button"
           onClick={() => {
@@ -621,20 +518,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span>1 Dia Atraso ({dueLate1DayCount})</span>
           </button>
 
-          {/* Tab: +5 Dias Vencidos */}
-          <button
-            type="button"
-            onClick={() => setActiveDashboardTab('overdue_5_days')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeDashboardTab === 'overdue_5_days'
-                ? 'bg-purple-700 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-purple-50 border border-slate-200'
-            }`}
-          >
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>+5 Dias ({overdue5DaysCount})</span>
-          </button>
-
           {/* Tab: Total Atrasados */}
           <button
             type="button"
@@ -647,20 +530,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           >
             <AlertTriangle className="w-3.5 h-3.5" />
             <span>Total Atrasados ({overdueCount})</span>
-          </button>
-
-          {/* Tab: Concluídos (NOVO) */}
-          <button
-            type="button"
-            onClick={() => setActiveDashboardTab('completed')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              activeDashboardTab === 'completed'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-white text-slate-700 hover:bg-emerald-50 border border-slate-200'
-            }`}
-          >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Concluídos ({completedCount})</span>
           </button>
 
           {/* Tab: Todos */}
@@ -819,25 +688,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </button>
                     )}
 
-                    {isPaid ? (
-                      onUndoPaid && (
-                        <button
-                          type="button"
-                          onClick={() => onUndoPaid(ch.id)}
-                          className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors shadow-2xs active:scale-95 cursor-pointer"
-                          title="Desfazer marcação de pago"
-                        >
-                          Desfazer
-                        </button>
-                      )
-                    ) : (
+                    {isPaid && onUndoPaid && (
                       <button
                         type="button"
-                        onClick={() => onMarkPaid(ch.id)}
-                        className="bg-slate-800 text-white text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-slate-700 transition-colors shadow-2xs active:scale-95 cursor-pointer"
-                        title="Marcar como concluído/pago"
+                        onClick={() => onUndoPaid(ch.id)}
+                        className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors shadow-2xs active:scale-95 cursor-pointer"
+                        title="Desfazer marcação de pago"
                       >
-                        Concluir
+                        Desfazer
                       </button>
                     )}
                   </div>

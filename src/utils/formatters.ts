@@ -282,21 +282,7 @@ export const deduplicatePaidCharges = (
   }
 
   const result: Charge[] = [];
-  for (const { charge: ch, client: cl } of bestChargeByClient.values()) {
-    if (cl?.dueDate) {
-      const [clientDate, clientTime] = cl.dueDate.includes('T') ? cl.dueDate.split('T') : [cl.dueDate, ''];
-      const currentChargeDate = (ch.dueDate || '') + (ch.dueTime ? `T${ch.dueTime}` : '');
-      const clientFullDate = clientDate + (clientTime ? `T${clientTime}` : '');
-
-      if (clientFullDate > currentChargeDate) {
-        result.push({
-          ...ch,
-          dueDate: clientDate,
-          dueTime: clientTime || ch.dueTime || undefined,
-        });
-        continue;
-      }
-    }
+  for (const { charge: ch } of bestChargeByClient.values()) {
     result.push(ch);
   }
 

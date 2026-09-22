@@ -892,25 +892,14 @@ export const DueView: React.FC<DueViewProps> = ({
                         </button>
                       )}
 
-                      {isPaid ? (
-                        onUndoPaid && (
-                          <button
-                            type="button"
-                            onClick={() => onUndoPaid(ch.id)}
-                            className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shadow-2xs active:scale-95 cursor-pointer"
-                            title="Desfazer marcação de pago"
-                          >
-                            Desfazer
-                          </button>
-                        )
-                      ) : (
+                      {isPaid && onUndoPaid && (
                         <button
                           type="button"
-                          onClick={() => onMarkPaid(ch.id)}
-                          className="bg-slate-800 text-white text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-slate-700 transition-colors shadow-2xs active:scale-95 cursor-pointer"
-                          title="Marcar como concluído/pago"
+                          onClick={() => onUndoPaid(ch.id)}
+                          className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shadow-2xs active:scale-95 cursor-pointer"
+                          title="Desfazer marcação de pago"
                         >
-                          Concluir
+                          Desfazer
                         </button>
                       )}
 

@@ -147,19 +147,12 @@ export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
                               >
                                 WhatsApp
                               </button>
-                              {ch.paid ? (
+                              {ch.paid && (
                                 <button
                                   onClick={() => onUndoPaid(ch.id)}
                                   className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors"
                                 >
                                   Desfazer
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => onMarkPaid(ch.id)}
-                                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors"
-                                >
-                                  Concluir
                                 </button>
                               )}
                             </div>
