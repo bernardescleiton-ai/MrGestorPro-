@@ -115,8 +115,10 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             onNavigate={handleNavigate}
             onOpenNewClient={handleOpenNewClient}
             onMarkPaid={handleMarkPaid}
+            onUndoPaid={handleUndoPaid}
             onSendWhatsApp={handleTriggerWhatsApp}
             onOpenRenewClient={handleOpenRenewClient}
+            onOpenEditClient={handleOpenEditClient}
           />
         )}
         {activeSection === 'clients' && (
@@ -157,6 +159,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             settings={data.settings}
             initialFilter={dueTabFilter}
             onMarkPaid={handleMarkPaid}
+            onUndoPaid={handleUndoPaid}
             onSendWhatsApp={handleTriggerWhatsApp}
             onOpenRenewClient={handleOpenRenewClient}
             onOpenEditClient={handleOpenEditClient}

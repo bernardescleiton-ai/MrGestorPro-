@@ -4,7 +4,7 @@ import { Client, Charge, CompanySettings } from '../types';
 import { dateBR, formatDateTimeBR, getChargeStatus, getDaysUntilDue, getClientStatusBadge, openWhatsApp, formatPhoneNumber, deduplicateClients, formatClientForCopy, formatClientsListForCopy } from '../utils/formatters';
 import { ExportClientsModal } from './ExportClientsModal';
 
-export type DueTabFilter = 'today' | 'in_3_days' | 'late_1_day' | 'overdue_5_days' | 'all_late' | 'all';
+export type DueTabFilter = 'today' | 'in_1_day' | 'in_3_days' | 'late_1_day' | 'overdue_5_days' | 'all_late' | 'completed' | 'all';
 
 interface DueViewProps {
   clients: Client[];
@@ -12,6 +12,7 @@ interface DueViewProps {
   settings: CompanySettings;
   initialFilter?: DueTabFilter;
   onMarkPaid: (chargeId: string) => void;
+  onUndoPaid?: (chargeId: string) => void;
   onSendWhatsApp?: (client: Client, charge?: Charge) => void;
   onOpenRenewClient?: (client: Client) => void;
   onOpenEditClient?: (client: Client) => void;
@@ -25,6 +26,7 @@ export const DueView: React.FC<DueViewProps> = ({
   settings,
   initialFilter = 'today',
   onMarkPaid,
+  onUndoPaid,
   onSendWhatsApp,
   onOpenRenewClient,
   onOpenEditClient,
@@ -165,6 +167,7 @@ export const DueView: React.FC<DueViewProps> = ({
   // Pre-calculate all counts in a single O(N) pass
   const counts = useMemo(() => {
     let today = 0;
+    let in1Day = 0;
     let in3Days = 0;
     let late1Day = 0;
     let overdue5Days = 0;
@@ -174,30 +177,45 @@ export const DueView: React.FC<DueViewProps> = ({
       const ch = allPendingItems[i];
       const diff = getItemDaysDiff(ch);
       if (diff === 0) today++;
+      if (diff === 1) in1Day++;
       if (diff !== null && diff >= 1 && diff <= 3) in3Days++;
       if (diff === -1) late1Day++;
       if (diff !== null && diff <= -5) overdue5Days++;
       if (diff !== null && diff < 0) allLate++;
     }
 
-    return { today, in3Days, late1Day, overdue5Days, allLate };
-  }, [allPendingItems, clientMap]);
+    const completed = safeCharges.filter((c) => c.paid).length;
 
-  const { today: todayCount, in3Days: in3DaysCount, late1Day: late1DayCount, overdue5Days: overdue5DaysCount, allLate: allLateCount } = counts;
+    return { today, in1Day, in3Days, late1Day, overdue5Days, allLate, completed };
+  }, [allPendingItems, safeCharges, clientMap]);
+
+  const {
+    today: todayCount,
+    in1Day: in1DayCount,
+    in3Days: in3DaysCount,
+    late1Day: late1DayCount,
+    overdue5Days: overdue5DaysCount,
+    allLate: allLateCount,
+    completed: completedCount,
+  } = counts;
   const totalAllCount = allPendingItems.length;
 
   // Filter items based on active tab
   const tabFilteredItems = useMemo(() => {
+    if (activeTab === 'completed') {
+      return safeCharges.filter((c) => c.paid);
+    }
     return allPendingItems.filter((ch) => {
       const diff = getItemDaysDiff(ch);
       if (activeTab === 'today') return diff === 0;
+      if (activeTab === 'in_1_day') return diff === 1;
       if (activeTab === 'in_3_days') return diff !== null && diff >= 1 && diff <= 3;
       if (activeTab === 'late_1_day') return diff === -1;
       if (activeTab === 'overdue_5_days') return diff !== null && diff <= -5;
       if (activeTab === 'all_late') return diff !== null && diff < 0;
       return true; // 'all'
     });
-  }, [allPendingItems, activeTab, clientMap]);
+  }, [allPendingItems, safeCharges, activeTab, clientMap]);
 
   // Apply search query filter
   const displayedItems = useMemo(() => {
@@ -212,11 +230,16 @@ export const DueView: React.FC<DueViewProps> = ({
         return nameMatch || phoneMatch || noteMatch;
       })
       .sort((a, b) => {
+        if (activeTab === 'completed') {
+          const dtA = a.paidAt || a.dueDate || '';
+          const dtB = b.paidAt || b.dueDate || '';
+          return dtB.localeCompare(dtA);
+        }
         const dtA = (a.dueDate || '') + (a.dueTime ? `T${a.dueTime}` : '');
         const dtB = (b.dueDate || '') + (b.dueTime ? `T${b.dueTime}` : '');
         return dtA.localeCompare(dtB);
       });
-  }, [tabFilteredItems, search, clientMap]);
+  }, [tabFilteredItems, search, activeTab, clientMap]);
 
   // Reset page on search or tab change
   useEffect(() => {
@@ -274,6 +297,13 @@ export const DueView: React.FC<DueViewProps> = ({
           badgeColor: 'bg-amber-100 text-amber-800 border-amber-300',
           count: todayCount,
         };
+      case 'in_1_day':
+        return {
+          title: '1 Dia Antes de Vencer',
+          desc: 'Clientes que vencem amanhã (exatamente 1 dia de antecedência) para aviso prévio e lembretes.',
+          badgeColor: 'bg-cyan-100 text-cyan-800 border-cyan-300',
+          count: in1DayCount,
+        };
       case 'in_3_days':
         return {
           title: 'Faltando 3 Dias',
@@ -301,6 +331,13 @@ export const DueView: React.FC<DueViewProps> = ({
           desc: 'Clientes com pagamento ou plano vencido há 1 ou mais dias.',
           badgeColor: 'bg-red-100 text-red-800 border-red-300',
           count: allLateCount,
+        };
+      case 'completed':
+        return {
+          title: 'Concluídos e Pagos',
+          desc: 'Histórico de clientes e cobranças já pagas e concluídas no sistema.',
+          badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+          count: completedCount,
         };
       case 'all':
       default:
@@ -359,12 +396,12 @@ export const DueView: React.FC<DueViewProps> = ({
       )}
 
       {/* Immediate Access Category Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-2.5">
         {/* Vencem Hoje */}
         <button
           type="button"
           onClick={() => handleTabChange('today')}
-          className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
             activeTab === 'today'
               ? 'bg-amber-500 text-white border-amber-600 shadow-md ring-2 ring-amber-400/30'
               : 'bg-white text-slate-700 border-slate-200/80 hover:border-amber-300 hover:bg-amber-50/30 shadow-2xs'
@@ -374,16 +411,44 @@ export const DueView: React.FC<DueViewProps> = ({
             <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'today' ? 'text-amber-100' : 'text-slate-500'}`}>
               Hoje
             </span>
-            <div className={`p-1.5 rounded-lg ${activeTab === 'today' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-600'}`}>
+            <div className={`p-1 rounded-lg ${activeTab === 'today' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-600'}`}>
               <Calendar className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between w-full mt-1">
-            <span className="text-xs sm:text-sm font-bold truncate">Vencem Hoje</span>
-            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${
+            <span className="text-xs font-bold truncate">Hoje</span>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
               activeTab === 'today' ? 'bg-white text-amber-700' : 'bg-amber-100 text-amber-800'
             }`}>
               {todayCount}
+            </span>
+          </div>
+        </button>
+
+        {/* 1 Dia Antes de Vencer */}
+        <button
+          type="button"
+          onClick={() => handleTabChange('in_1_day')}
+          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+            activeTab === 'in_1_day'
+              ? 'bg-cyan-600 text-white border-cyan-700 shadow-md ring-2 ring-cyan-400/30'
+              : 'bg-white text-slate-700 border-slate-200/80 hover:border-cyan-300 hover:bg-cyan-50/30 shadow-2xs'
+          }`}
+        >
+          <div className="flex items-center justify-between w-full mb-1">
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'in_1_day' ? 'text-cyan-100' : 'text-slate-500'}`}>
+              Amanhã
+            </span>
+            <div className={`p-1 rounded-lg ${activeTab === 'in_1_day' ? 'bg-cyan-700 text-white' : 'bg-cyan-50 text-cyan-600'}`}>
+              <Clock className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between w-full mt-1">
+            <span className="text-xs font-bold truncate">1 Dia Antes</span>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
+              activeTab === 'in_1_day' ? 'bg-white text-cyan-700' : 'bg-cyan-100 text-cyan-800'
+            }`}>
+              {in1DayCount}
             </span>
           </div>
         </button>
@@ -392,7 +457,7 @@ export const DueView: React.FC<DueViewProps> = ({
         <button
           type="button"
           onClick={() => handleTabChange('in_3_days')}
-          className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
             activeTab === 'in_3_days'
               ? 'bg-blue-600 text-white border-blue-700 shadow-md ring-2 ring-blue-500/30'
               : 'bg-white text-slate-700 border-slate-200/80 hover:border-blue-300 hover:bg-blue-50/30 shadow-2xs'
@@ -400,15 +465,15 @@ export const DueView: React.FC<DueViewProps> = ({
         >
           <div className="flex items-center justify-between w-full mb-1">
             <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'in_3_days' ? 'text-blue-100' : 'text-slate-500'}`}>
-              Próximos
+              1 a 3 Dias
             </span>
-            <div className={`p-1.5 rounded-lg ${activeTab === 'in_3_days' ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-600'}`}>
+            <div className={`p-1 rounded-lg ${activeTab === 'in_3_days' ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-600'}`}>
               <Clock className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between w-full mt-1">
-            <span className="text-xs sm:text-sm font-bold truncate">Faltando 3 Dias</span>
-            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${
+            <span className="text-xs font-bold truncate">3 Dias</span>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
               activeTab === 'in_3_days' ? 'bg-white text-blue-700' : 'bg-blue-100 text-blue-800'
             }`}>
               {in3DaysCount}
@@ -420,7 +485,7 @@ export const DueView: React.FC<DueViewProps> = ({
         <button
           type="button"
           onClick={() => handleTabChange('late_1_day')}
-          className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
             activeTab === 'late_1_day'
               ? 'bg-rose-600 text-white border-rose-700 shadow-md ring-2 ring-rose-500/30'
               : 'bg-white text-slate-700 border-slate-200/80 hover:border-rose-300 hover:bg-rose-50/30 shadow-2xs'
@@ -430,13 +495,13 @@ export const DueView: React.FC<DueViewProps> = ({
             <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'late_1_day' ? 'text-rose-100' : 'text-slate-500'}`}>
               Ontem
             </span>
-            <div className={`p-1.5 rounded-lg ${activeTab === 'late_1_day' ? 'bg-rose-700 text-white' : 'bg-rose-50 text-rose-600'}`}>
+            <div className={`p-1 rounded-lg ${activeTab === 'late_1_day' ? 'bg-rose-700 text-white' : 'bg-rose-50 text-rose-600'}`}>
               <AlertCircle className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between w-full mt-1">
-            <span className="text-xs sm:text-sm font-bold truncate">1 Dia Atraso</span>
-            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${
+            <span className="text-xs font-bold truncate">1 Dia Atraso</span>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
               activeTab === 'late_1_day' ? 'bg-white text-rose-700' : 'bg-rose-100 text-rose-800'
             }`}>
               {late1DayCount}
@@ -448,7 +513,7 @@ export const DueView: React.FC<DueViewProps> = ({
         <button
           type="button"
           onClick={() => handleTabChange('overdue_5_days')}
-          className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
             activeTab === 'overdue_5_days'
               ? 'bg-purple-700 text-white border-purple-800 shadow-md ring-2 ring-purple-500/30'
               : 'bg-white text-slate-700 border-slate-200/80 hover:border-purple-300 hover:bg-purple-50/30 shadow-2xs'
@@ -458,13 +523,13 @@ export const DueView: React.FC<DueViewProps> = ({
             <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'overdue_5_days' ? 'text-purple-200' : 'text-slate-500'}`}>
               &gt; 5 Dias
             </span>
-            <div className={`p-1.5 rounded-lg ${activeTab === 'overdue_5_days' ? 'bg-purple-800 text-white' : 'bg-purple-50 text-purple-700'}`}>
+            <div className={`p-1 rounded-lg ${activeTab === 'overdue_5_days' ? 'bg-purple-800 text-white' : 'bg-purple-50 text-purple-700'}`}>
               <AlertTriangle className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between w-full mt-1">
-            <span className="text-xs sm:text-sm font-bold truncate">+5 Dias Vencidos</span>
-            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${
+            <span className="text-xs font-bold truncate">+5 Dias</span>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
               activeTab === 'overdue_5_days' ? 'bg-white text-purple-800' : 'bg-purple-100 text-purple-800'
             }`}>
               {overdue5DaysCount}
@@ -476,7 +541,7 @@ export const DueView: React.FC<DueViewProps> = ({
         <button
           type="button"
           onClick={() => handleTabChange('all_late')}
-          className={`p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
             activeTab === 'all_late'
               ? 'bg-red-700 text-white border-red-800 shadow-md ring-2 ring-red-600/30'
               : 'bg-white text-slate-700 border-slate-200/80 hover:border-red-300 hover:bg-red-50/30 shadow-2xs'
@@ -484,18 +549,46 @@ export const DueView: React.FC<DueViewProps> = ({
         >
           <div className="flex items-center justify-between w-full mb-1">
             <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'all_late' ? 'text-red-100' : 'text-slate-500'}`}>
-              Atrasados
+              Crítico
             </span>
-            <div className={`p-1.5 rounded-lg ${activeTab === 'all_late' ? 'bg-red-800 text-white' : 'bg-red-50 text-red-600'}`}>
+            <div className={`p-1 rounded-lg ${activeTab === 'all_late' ? 'bg-red-800 text-white' : 'bg-red-50 text-red-600'}`}>
               <AlertTriangle className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between w-full mt-1">
-            <span className="text-xs sm:text-sm font-bold truncate">Total Atrasados</span>
-            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${
+            <span className="text-xs font-bold truncate">Atrasados</span>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
               activeTab === 'all_late' ? 'bg-white text-red-700' : 'bg-red-100 text-red-800'
             }`}>
               {allLateCount}
+            </span>
+          </div>
+        </button>
+
+        {/* Concluídos / Pagos */}
+        <button
+          type="button"
+          onClick={() => handleTabChange('completed')}
+          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+            activeTab === 'completed'
+              ? 'bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400/30'
+              : 'bg-white text-slate-700 border-slate-200/80 hover:border-emerald-300 hover:bg-emerald-50/30 shadow-2xs'
+          }`}
+        >
+          <div className="flex items-center justify-between w-full mb-1">
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'completed' ? 'text-emerald-100' : 'text-slate-500'}`}>
+              Pagos
+            </span>
+            <div className={`p-1 rounded-lg ${activeTab === 'completed' ? 'bg-emerald-700 text-white' : 'bg-emerald-50 text-emerald-600'}`}>
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            </div>
+          </div>
+          <div className="flex items-baseline justify-between w-full mt-1">
+            <span className="text-xs font-bold truncate">Concluídos</span>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
+              activeTab === 'completed' ? 'bg-white text-emerald-700' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              {completedCount}
             </span>
           </div>
         </button>
@@ -504,7 +597,7 @@ export const DueView: React.FC<DueViewProps> = ({
         <button
           type="button"
           onClick={() => handleTabChange('all')}
-          className={`col-span-2 sm:col-span-1 lg:col-span-1 p-3.5 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
+          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
             activeTab === 'all'
               ? 'bg-slate-800 text-white border-slate-900 shadow-md ring-2 ring-slate-700/30'
               : 'bg-white text-slate-700 border-slate-200/80 hover:border-slate-400 hover:bg-slate-50/60 shadow-2xs'
@@ -514,13 +607,13 @@ export const DueView: React.FC<DueViewProps> = ({
             <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'all' ? 'text-slate-300' : 'text-slate-500'}`}>
               Geral
             </span>
-            <div className={`p-1.5 rounded-lg ${activeTab === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+            <div className={`p-1 rounded-lg ${activeTab === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
               <Bell className="w-3.5 h-3.5" />
             </div>
           </div>
           <div className="flex items-baseline justify-between w-full mt-1">
-            <span className="text-xs sm:text-sm font-bold truncate">Todos</span>
-            <span className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${
+            <span className="text-xs font-bold truncate">Todos</span>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
               activeTab === 'all' ? 'bg-white text-slate-900' : 'bg-slate-100 text-slate-700'
             }`}>
               {totalAllCount}
@@ -666,6 +759,7 @@ export const DueView: React.FC<DueViewProps> = ({
                 const client = clientMap.get(ch.clientId);
                 const daysDiff = getItemDaysDiff(ch);
                 const statusBadge = getClientStatusBadge(ch.dueDate + (ch.dueTime ? `T${ch.dueTime}` : ''));
+                const isPaid = Boolean(ch.paid);
                 const isSelected = client ? selectedClientIds.includes(client.id) : false;
 
                 return (
@@ -674,6 +768,8 @@ export const DueView: React.FC<DueViewProps> = ({
                     className={`flex flex-col sm:flex-row sm:items-center justify-between p-3.5 sm:p-4 rounded-xl border transition-all gap-3 ${
                       isSelected
                         ? 'bg-rose-50/70 border-rose-300 shadow-xs'
+                        : isPaid
+                        ? 'bg-emerald-50/40 border-emerald-200 hover:border-emerald-300'
                         : daysDiff === 0
                         ? 'bg-amber-50/40 border-amber-200 hover:border-amber-300'
                         : daysDiff !== null && daysDiff < 0
@@ -700,15 +796,26 @@ export const DueView: React.FC<DueViewProps> = ({
                           <span className="font-bold text-slate-900 text-sm truncate">
                             {client ? client.name : 'Cliente sem cadastro'}
                           </span>
-                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${statusBadge.className}`}>
-                            {statusBadge.label}
-                          </span>
+                          {isPaid ? (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              Pago / Concluído
+                            </span>
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${statusBadge.className}`}>
+                              {statusBadge.label}
+                            </span>
+                          )}
                         </div>
 
                         <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono">
                           <span>
                             Vencimento: <strong className="text-slate-800">{dateBR(ch.dueDate)}{ch.dueTime ? ` às ${ch.dueTime}` : ''}</strong>
                           </span>
+                          {isPaid && ch.paidAt && (
+                            <span className="text-emerald-700 font-medium">
+                              • Pago em: {formatDateTimeBR(ch.paidAt)}
+                            </span>
+                          )}
                           {client?.phone && (
                             <span className="flex items-center gap-1 text-slate-500">
                               <Phone className="w-3 h-3 text-slate-400" />
@@ -776,14 +883,27 @@ export const DueView: React.FC<DueViewProps> = ({
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        onClick={() => onMarkPaid(ch.id)}
-                        className="bg-slate-800 text-white text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-slate-700 transition-colors shadow-2xs active:scale-95 cursor-pointer"
-                        title="Marcar como concluído/pago"
-                      >
-                        Concluir
-                      </button>
+                      {isPaid ? (
+                        onUndoPaid && (
+                          <button
+                            type="button"
+                            onClick={() => onUndoPaid(ch.id)}
+                            className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors shadow-2xs active:scale-95 cursor-pointer"
+                            title="Desfazer marcação de pago"
+                          >
+                            Desfazer
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onMarkPaid(ch.id)}
+                          className="bg-slate-800 text-white text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-slate-700 transition-colors shadow-2xs active:scale-95 cursor-pointer"
+                          title="Marcar como concluído/pago"
+                        >
+                          Concluir
+                        </button>
+                      )}
 
                       {/* Explicit Delete Client Button */}
                       {client && onDeleteClient && (
