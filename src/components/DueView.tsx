@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Bell, RefreshCw, Calendar, Clock, AlertTriangle, AlertCircle, Search, CheckCircle2, MessageSquare, Phone, Trash2, CheckSquare, Square, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bell, RefreshCw, Calendar, Clock, AlertTriangle, AlertCircle, Search, CheckCircle2, MessageSquare, Phone, Trash2, CheckSquare, Square, Edit, ChevronLeft, ChevronRight, Copy, Download, Check } from 'lucide-react';
 import { Client, Charge, CompanySettings } from '../types';
-import { dateBR, formatDateTimeBR, getChargeStatus, getDaysUntilDue, getClientStatusBadge, openWhatsApp } from '../utils/formatters';
+import { dateBR, formatDateTimeBR, getChargeStatus, getDaysUntilDue, getClientStatusBadge, openWhatsApp, formatPhoneNumber } from '../utils/formatters';
+import { ExportClientsModal } from './ExportClientsModal';
 
 export type DueTabFilter = 'today' | 'in_3_days' | 'late_1_day' | 'overdue_5_days' | 'all_late' | 'all';
 
@@ -34,6 +35,12 @@ export const DueView: React.FC<DueViewProps> = ({
   const [search, setSearch] = useState('');
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
 
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportClientsList, setExportClientsList] = useState<Client[]>([]);
+  const [copiedBatch, setCopiedBatch] = useState(false);
+  const [copiedSingleId, setCopiedSingleId] = useState<string | null>(null);
+  const [localToast, setLocalToast] = useState<{ title: string; message: string } | null>(null);
+
   // Update active tab if initialFilter prop changes
   useEffect(() => {
     if (initialFilter) {
@@ -49,6 +56,70 @@ export const DueView: React.FC<DueViewProps> = ({
 
   const safeClients = useMemo(() => (Array.isArray(clients) ? clients : []), [clients]);
   const safeCharges = useMemo(() => (Array.isArray(charges) ? charges : []), [charges]);
+
+  const showLocalToast = (title: string, message: string) => {
+    setLocalToast({ title, message });
+    setTimeout(() => setLocalToast(null), 3000);
+  };
+
+  const handleDirectCopy = async (targetClients: Client[]) => {
+    if (!targetClients || targetClients.length === 0) return;
+    const text = targetClients
+      .map((c, index) => {
+        const formattedDate = c.dueDate ? formatDateTimeBR(c.dueDate) : 'Sem data de vencimento';
+        const formattedPhone = c.phone ? formatPhoneNumber(c.phone) : 'Sem telefone';
+        const notesLine = c.notes ? `\nObservações: ${c.notes}` : '';
+        return `${index + 1}. ${c.name}\nTelefone: ${formattedPhone}\nVencimento: ${formattedDate}${notesLine}`;
+      })
+      .join('\n\n');
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedBatch(true);
+      showLocalToast('Copiado com Sucesso!', `${targetClients.length} cliente(s) copiado(s) para a área de transferência.`);
+      setTimeout(() => setCopiedBatch(false), 2500);
+    } catch (err) {
+      console.error('Erro ao copiar dados:', err);
+    }
+  };
+
+  const handleCopySingle = async (client: Client) => {
+    const formattedDate = client.dueDate ? formatDateTimeBR(client.dueDate) : 'Sem data de vencimento';
+    const formattedPhone = client.phone ? formatPhoneNumber(client.phone) : 'Sem telefone';
+    const text = `Nome: ${client.name}\nTelefone: ${formattedPhone}\nVencimento: ${formattedDate}${client.notes ? `\nObservações: ${client.notes}` : ''}`;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedSingleId(client.id);
+      showLocalToast('Copiado!', `Dados de "${client.name}" copiados com sucesso.`);
+      setTimeout(() => setCopiedSingleId(null), 2000);
+    } catch (err) {
+      console.error('Erro ao copiar:', err);
+    }
+  };
 
   const clientMap = useMemo(() => {
     const map = new Map<string, Client>();
@@ -262,7 +333,38 @@ export const DueView: React.FC<DueViewProps> = ({
             Acesso imediato e separado por período de vencimento dos clientes.
           </p>
         </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const currentClients = displayedClientIds
+                .map((id) => clientMap.get(id))
+                .filter((c): c is Client => Boolean(c));
+              setExportClientsList(currentClients);
+              setIsExportModalOpen(true);
+            }}
+            className="bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs sm:text-sm font-bold px-3.5 py-2.5 rounded-xl transition-all shadow-2xs flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+            title="Copiar dados ou baixar arquivo com clientes deste filtro"
+          >
+            <Download className="w-4 h-4 text-blue-600" />
+            <span>Copiar / Exportar ({displayedClientIds.length})</span>
+          </button>
+        </div>
       </div>
+
+      {/* Floating Local Feedback Toast */}
+      {localToast && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700 flex items-center gap-3 animate-in slide-in-from-bottom-3 duration-200">
+          <div className="w-7 h-7 bg-emerald-600 rounded-lg flex items-center justify-center shrink-0">
+            <Check className="w-4 h-4 text-white stroke-[3]" />
+          </div>
+          <div>
+            <div className="font-bold text-xs">{localToast.title}</div>
+            <div className="text-[11px] text-slate-300 font-mono">{localToast.message}</div>
+          </div>
+        </div>
+      )}
 
       {/* Immediate Access Category Tabs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
@@ -437,23 +539,54 @@ export const DueView: React.FC<DueViewProps> = ({
 
       {/* Bulk Action Bar for Selected Clients */}
       {activeSelectedClientIds.length > 0 && (
-        <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between text-xs text-rose-900 shadow-md animate-in fade-in duration-200">
-          <div className="flex items-center gap-2 font-bold">
-            <span className="w-6 h-6 bg-rose-600 text-white rounded-full flex items-center justify-center text-xs">
+        <div className="bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl animate-in fade-in duration-200 border border-slate-800">
+          <div className="flex items-center gap-3">
+            <span className="w-7 h-7 bg-blue-600 text-white rounded-xl flex items-center justify-center text-xs font-bold shadow-xs">
               {activeSelectedClientIds.length}
             </span>
-            <span>
-              cliente{activeSelectedClientIds.length > 1 ? 's' : ''} selecionado{activeSelectedClientIds.length > 1 ? 's' : ''} para exclusão
-            </span>
+            <div>
+              <div className="font-bold text-sm text-white">
+                {activeSelectedClientIds.length} cliente{activeSelectedClientIds.length > 1 ? 's' : ''} selecionado{activeSelectedClientIds.length > 1 ? 's' : ''}
+              </div>
+              <p className="text-[11px] text-slate-400 font-mono">
+                Copie os dados ou gere um arquivo completo com Nome, Telefone e Vencimento
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setSelectedClientIds([])}
-              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-semibold transition-colors cursor-pointer"
+              onClick={() => {
+                const selectedList = activeSelectedClientIds
+                  .map((id) => clientMap.get(id))
+                  .filter((c): c is Client => Boolean(c));
+                handleDirectCopy(selectedList);
+              }}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95 cursor-pointer ${
+                copiedBatch ? 'bg-emerald-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+              title="Copiar dados dos clientes selecionados para a área de transferência"
             >
-              Desmarcar todos
+              {copiedBatch ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
+              <span>{copiedBatch ? 'Copiado!' : `Copiar Dados (${activeSelectedClientIds.length})`}</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const selectedList = activeSelectedClientIds
+                  .map((id) => clientMap.get(id))
+                  .filter((c): c is Client => Boolean(c));
+                setExportClientsList(selectedList);
+                setIsExportModalOpen(true);
+              }}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95 cursor-pointer"
+              title="Abrir opções completas de exportação e download de arquivo (.txt / .csv / .json)"
+            >
+              <Download className="w-4 h-4 text-blue-400" />
+              <span>Gerar / Baixar Arquivo</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
@@ -462,9 +595,17 @@ export const DueView: React.FC<DueViewProps> = ({
                   setSelectedClientIds([]);
                 }
               }}
-              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95 cursor-pointer ml-auto sm:ml-0"
             >
-              <Trash2 className="w-4 h-4" /> Excluir {activeSelectedClientIds.length} Cliente{activeSelectedClientIds.length > 1 ? 's' : ''}
+              <Trash2 className="w-4 h-4" /> Excluir
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedClientIds([])}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            >
+              Desmarcar todos
             </button>
           </div>
         </div>
@@ -602,6 +743,24 @@ export const DueView: React.FC<DueViewProps> = ({
                         </button>
                       )}
 
+                      {client && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopySingle(client)}
+                          className="p-1.5 sm:px-2.5 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-medium transition-colors active:scale-95 flex items-center gap-1 cursor-pointer"
+                          title={`Copiar dados do cliente ${client.name} (Nome, Telefone, Vencimento)`}
+                        >
+                          {copiedSingleId === client.id ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5 text-slate-600" />
+                          )}
+                          <span className="hidden sm:inline">
+                            {copiedSingleId === client.id ? 'Copiado' : 'Copiar'}
+                          </span>
+                        </button>
+                      )}
+
                       {client && onOpenEditClient && (
                         <button
                           type="button"
@@ -717,6 +876,14 @@ export const DueView: React.FC<DueViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Export / Copy Clients Modal */}
+      <ExportClientsModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        selectedClients={exportClientsList}
+        onShowToast={showLocalToast}
+      />
     </div>
   );
 };
