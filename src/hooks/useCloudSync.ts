@@ -102,45 +102,55 @@ export const useCloudSync = ({
     return () => unsubscribe();
   }, [syncTrigger]);
 
-  // Synchronous local persistence + debounced background cloud synchronization
+  // Non-blocking local persistence + debounced background cloud synchronization
   useEffect(() => {
+    let localSaveTimer: NodeJS.Timeout | null = null;
     try {
-      // 1. Instant local persistence to device storage (0ms delay)
-      localStorage.setItem('gc_v1_data', JSON.stringify(data));
+      // 1. Non-blocking local persistence to device storage (0ms main-thread cost)
+      localSaveTimer = setTimeout(() => {
+        try {
+          localStorage.setItem('gc_v1_data', JSON.stringify(data));
+        } catch (e) {
+          logger.error('Error saving localStorage:', e);
+        }
+      }, 0);
 
       // 2. Guard against echoing remote cloud updates back to Firestore
       if (isRemoteUpdate.current || Date.now() - lastRemoteUpdateTimestamp.current < 2500) {
         isRemoteUpdate.current = false;
-        return;
+        return () => {
+          if (localSaveTimer) clearTimeout(localSaveTimer);
+        };
       }
 
-      if (!hasFetchedCloud.current) return;
-
-      const currentJson = JSON.stringify({ clients: data.clients, charges: data.charges, settings: data.settings, sentLogs: data.sentLogs });
-      if (currentJson !== lastSavedDataJsonRef.current) {
-        lastSavedDataJsonRef.current = currentJson;
-        markHasPendingLocalChanges();
-
-        // 3. Debounce cloud writes by 1200ms so multiple user actions don't saturate network
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-        }
-
-        saveTimeoutRef.current = setTimeout(() => {
-          flushPendingDeletionsToFirestore().catch(() => {});
-          saveAppData(dataRef.current).then(() => setSyncError(null)).catch((err) => {
-            logger.warn('Save app data notice:', err);
-            if (err?.message?.includes('Quota exceeded') || err?.message?.includes('resource-exhausted')) {
-              setSyncError('Cota diária do Firebase atingida. Seus dados estão salvos no aparelho!');
-            } else {
-              setSyncError(err instanceof Error ? err.message : String(err));
-            }
-          });
-        }, 1200);
+      if (!hasFetchedCloud.current) {
+        return () => {
+          if (localSaveTimer) clearTimeout(localSaveTimer);
+        };
       }
+
+      markHasPendingLocalChanges();
+
+      // 3. Debounce cloud writes by 1500ms so multiple user actions don't saturate network
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      saveTimeoutRef.current = setTimeout(() => {
+        flushPendingDeletionsToFirestore().catch(() => {});
+        saveAppData(dataRef.current).then(() => setSyncError(null)).catch((err) => {
+          logger.warn('Save app data notice:', err);
+          if (err?.message?.includes('Quota exceeded') || err?.message?.includes('resource-exhausted')) {
+            setSyncError('Cota diária do Firebase atingida. Seus dados estão salvos no aparelho!');
+          } else {
+            setSyncError(err instanceof Error ? err.message : String(err));
+          }
+        });
+      }, 1500);
     } catch (e) { logger.error('Error saving data:', e); }
 
     return () => {
+      if (localSaveTimer) clearTimeout(localSaveTimer);
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }

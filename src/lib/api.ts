@@ -33,7 +33,10 @@ export {
 
 export function sanitizeAppData(raw: any): AppData {
   if (!raw || typeof raw !== 'object') {
-    return { ...initialAppData, updatedAt: Date.now() };
+    return { ...initialAppData, updatedAt: Date.now(), _sanitized: true } as AppData;
+  }
+  if ((raw as any)._sanitized === true) {
+    return raw as AppData;
   }
   const rawClients = Array.isArray(raw.clients) ? raw.clients : [];
   const rawCharges = Array.isArray(raw.charges) ? raw.charges : [];
@@ -131,7 +134,8 @@ export function sanitizeAppData(raw: any): AppData {
     },
     sentLogs: cleanLogs,
     updatedAt: typeof raw.updatedAt === 'number' && raw.updatedAt > 0 ? raw.updatedAt : Date.now(),
-  };
+    _sanitized: true,
+  } as AppData;
 }
 
 const isLocalServer = (): boolean => {

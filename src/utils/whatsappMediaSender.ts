@@ -58,6 +58,8 @@ export async function getMediaBlob(media: WhatsAppMediaAttachment): Promise<Blob
   return blob;
 }
 
+let cachedPngBlob: { idOrUrl: string; blob: Blob } | null = null;
+
 /**
  * Copies an attached image directly to the user's system clipboard.
  * When WhatsApp opens, the user can simply hit Ctrl+V (or Paste) to insert the image into WhatsApp!
@@ -65,12 +67,22 @@ export async function getMediaBlob(media: WhatsAppMediaAttachment): Promise<Blob
 export async function copyMediaImageToClipboard(media: WhatsAppMediaAttachment): Promise<boolean> {
   if (typeof navigator === 'undefined' || !navigator.clipboard) return false;
   try {
-    const blob = await getMediaBlob(media);
-    if (!blob || !blob.type.startsWith('image/')) return false;
+    const key = media.id || media.url || '';
+    let pngBlob: Blob | null = null;
 
-    const pngBlob = blob.type === 'image/png' ? blob : await convertBlobToPng(blob);
+    if (cachedPngBlob && cachedPngBlob.idOrUrl === key) {
+      pngBlob = cachedPngBlob.blob;
+    } else {
+      const rawBlob = await getMediaBlob(media);
+      if (!rawBlob || !rawBlob.type.startsWith('image/')) return false;
 
-    if (typeof ClipboardItem !== 'undefined') {
+      pngBlob = rawBlob.type === 'image/png' ? rawBlob : await convertBlobToPng(rawBlob);
+      if (pngBlob) {
+        cachedPngBlob = { idOrUrl: key, blob: pngBlob };
+      }
+    }
+
+    if (pngBlob && typeof ClipboardItem !== 'undefined') {
       const item = new ClipboardItem({ 'image/png': pngBlob });
       await navigator.clipboard.write([item]);
       return true;
@@ -105,7 +117,7 @@ export async function downloadMediaAttachment(media: WhatsAppMediaAttachment): P
 /**
  * Prepares a WhatsApp message with an optional file using the browser's native share sheet (Mobile).
  */
-async function shareMedia(text: string, media: WhatsAppMediaAttachment): Promise<WhatsAppMediaSendResult> {
+async function _shareMedia(text: string, media: WhatsAppMediaAttachment): Promise<WhatsAppMediaSendResult> {
   if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return 'text_fallback';
   try {
     const blob = await getMediaBlob(media);
@@ -145,22 +157,17 @@ export async function sendWhatsAppMessage({
   const normalized = normalizePhone(phone);
   if (!normalized) return 'invalid';
 
-  if (media) {
-    // 1. If mobile device supports sharing files directly via share sheet
-    const shareResult = await shareMedia(text, media);
-    if (shareResult === 'share_sheet') return shareResult;
+  // 1. Open WhatsApp link immediately (0ms delay - instant launch!)
+  openWhatsAppLink(phone, text, settings);
 
-    // 2. On Desktop / Web where WhatsApp links cannot attach files directly:
-    // We copy the image to the clipboard so the user can just press Ctrl+V inside WhatsApp!
-    if (media.type === 'image') {
-      const copied = await copyMediaImageToClipboard(media);
+  // 2. Asynchronously copy image to clipboard in background if attached
+  if (media && media.type === 'image') {
+    copyMediaImageToClipboard(media).then((copied) => {
       if (copied && onImageCopied) {
         onImageCopied();
       }
-    }
+    }).catch(() => {});
   }
 
-  // 3. Open WhatsApp link with pre-filled text
-  openWhatsAppLink(phone, text, settings);
   return 'text_fallback';
 }

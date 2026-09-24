@@ -314,6 +314,41 @@ const cloudChargesCache = new Map<string, string>();
 const cloudLogsCache = new Map<string, string>();
 let cloudSettingsHash = '';
 
+// Object reference caches to avoid stringifying unchanged JS objects
+const clientObjCache = new Map<string, { obj: Client; json: string }>();
+const chargeObjCache = new Map<string, { obj: Charge; json: string }>();
+const logObjCache = new Map<string, { obj: SentMessageLog; json: string }>();
+
+function getClientJson(client: Client): string {
+  const cached = clientObjCache.get(client.id);
+  if (cached && cached.obj === client) {
+    return cached.json;
+  }
+  const json = JSON.stringify(client);
+  clientObjCache.set(client.id, { obj: client, json });
+  return json;
+}
+
+function getChargeJson(charge: Charge): string {
+  const cached = chargeObjCache.get(charge.id);
+  if (cached && cached.obj === charge) {
+    return cached.json;
+  }
+  const json = JSON.stringify(charge);
+  chargeObjCache.set(charge.id, { obj: charge, json });
+  return json;
+}
+
+function getLogJson(log: SentMessageLog): string {
+  const cached = logObjCache.get(log.id);
+  if (cached && cached.obj === log) {
+    return cached.json;
+  }
+  const json = JSON.stringify(log);
+  logObjCache.set(log.id, { obj: log, json });
+  return json;
+}
+
 // Delete WhatsApp media from Cloud Firestore settings
 export async function deleteWhatsAppMediaFromCloud(): Promise<void> {
   if (isQuotaExhausted) return;
@@ -346,7 +381,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
     const dirtyClients: Client[] = [];
     for (const client of data.clients || []) {
       if (client && client.id) {
-        const rawJson = JSON.stringify(client);
+        const rawJson = getClientJson(client);
         if (cloudClientsCache.get(client.id) !== rawJson) {
           dirtyClients.push(client);
         }
@@ -357,7 +392,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
     const dirtyCharges: Charge[] = [];
     for (const charge of data.charges || []) {
       if (charge && charge.id) {
-        const rawJson = JSON.stringify(charge);
+        const rawJson = getChargeJson(charge);
         if (cloudChargesCache.get(charge.id) !== rawJson) {
           dirtyCharges.push(charge);
         }
@@ -368,7 +403,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
     const dirtyLogs: SentMessageLog[] = [];
     for (const log of data.sentLogs || []) {
       if (log && log.id) {
-        const rawJson = JSON.stringify(log);
+        const rawJson = getLogJson(log);
         if (cloudLogsCache.get(log.id) !== rawJson) {
           dirtyLogs.push(log);
         }
