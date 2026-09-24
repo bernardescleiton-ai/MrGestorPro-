@@ -409,7 +409,7 @@ export const DueView: React.FC<DueViewProps> = ({
       )}
 
       {/* Immediate Access Category Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-2.5">
         {/* Vencem Hoje */}
         <button
           type="button"
@@ -574,34 +574,6 @@ export const DueView: React.FC<DueViewProps> = ({
               activeTab === 'all_late' ? 'bg-white text-red-700' : 'bg-red-100 text-red-800'
             }`}>
               {allLateCount}
-            </span>
-          </div>
-        </button>
-
-        {/* Concluídos / Pagos */}
-        <button
-          type="button"
-          onClick={() => handleTabChange('completed')}
-          className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col justify-between active:scale-95 cursor-pointer ${
-            activeTab === 'completed'
-              ? 'bg-emerald-600 text-white border-emerald-700 shadow-md ring-2 ring-emerald-400/30'
-              : 'bg-white text-slate-700 border-slate-200/80 hover:border-emerald-300 hover:bg-emerald-50/30 shadow-2xs'
-          }`}
-        >
-          <div className="flex items-center justify-between w-full mb-1">
-            <span className={`text-[10px] font-bold uppercase tracking-wider ${activeTab === 'completed' ? 'text-emerald-100' : 'text-slate-500'}`}>
-              Pagos
-            </span>
-            <div className={`p-1 rounded-lg ${activeTab === 'completed' ? 'bg-emerald-700 text-white' : 'bg-emerald-50 text-emerald-600'}`}>
-              <CheckCircle2 className="w-3.5 h-3.5" />
-            </div>
-          </div>
-          <div className="flex items-baseline justify-between w-full mt-1">
-            <span className="text-xs font-bold truncate">Concluídos</span>
-            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${
-              activeTab === 'completed' ? 'bg-white text-emerald-700' : 'bg-emerald-100 text-emerald-800'
-            }`}>
-              {completedCount}
             </span>
           </div>
         </button>
