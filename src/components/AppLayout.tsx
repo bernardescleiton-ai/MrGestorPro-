@@ -119,6 +119,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             onSendWhatsApp={handleTriggerWhatsApp}
             onOpenRenewClient={handleOpenRenewClient}
             onOpenEditClient={handleOpenEditClient}
+            onDeleteClient={handleDeleteClient}
+            onDeleteCharge={handleDeleteCharge}
           />
         )}
         {activeSection === 'clients' && (
@@ -166,6 +168,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             onOpenEditClient={handleOpenEditClient}
             onDeleteClient={handleDeleteClient}
             onDeleteClientsBatch={handleDeleteBatch}
+            onDeleteCharge={handleDeleteCharge}
+            onDeleteChargesBatch={handleDeleteChargesBatch}
           />
         )}
         {activeSection === 'profile' && (
@@ -204,6 +208,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         onClose={() => setIsClientModalOpen(false)}
         onSave={handleSaveClient}
         onSaveBatch={handleSaveBatch}
+        onDeleteClient={handleDeleteClient}
         clientToEdit={clientToEdit}
         clients={data.clients}
       />
@@ -224,6 +229,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         onUndoPaid={handleUndoPaid}
         onSendWhatsApp={handleTriggerWhatsApp}
         onOpenRenewClient={handleOpenRenewClient}
+        onDeleteCharge={handleDeleteCharge}
+        onDeleteClient={handleDeleteClient}
         onNewChargeForClient={(clientId) => {
           setHistoryClient(null);
           handleOpenNewCharge(clientId);

@@ -17,6 +17,7 @@ import {
   Search,
   ExternalLink,
   Edit,
+  Trash2,
 } from 'lucide-react';
 import { AppData, SectionType, Client, Charge } from '../types';
 import {
@@ -42,6 +43,8 @@ interface DashboardViewProps {
   onSendWhatsApp?: (client: Client, charge?: Charge) => void;
   onOpenRenewClient?: (client: Client) => void;
   onOpenEditClient?: (client: Client) => void;
+  onDeleteClient?: (clientId: string) => void;
+  onDeleteCharge?: (chargeId: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -53,6 +56,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSendWhatsApp,
   onOpenRenewClient,
   onOpenEditClient,
+  onDeleteClient,
+  onDeleteCharge,
 }) => {
   const clients = useMemo(() => (Array.isArray(data?.clients) ? data.clients : []), [data?.clients]);
   const charges = useMemo(() => (Array.isArray(data?.charges) ? data.charges : []), [data?.charges]);
@@ -674,6 +679,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       >
                         <Edit className="w-3.5 h-3.5 text-slate-600" />
                         <span className="hidden sm:inline">Editar</span>
+                      </button>
+                    )}
+
+                    {(client || onDeleteCharge) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (client && onDeleteClient) {
+                            onDeleteClient(client.id);
+                          } else if (onDeleteCharge) {
+                            onDeleteCharge(ch.id);
+                          }
+                        }}
+                        className="p-1.5 sm:px-2.5 sm:py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-medium transition-colors active:scale-95 flex items-center gap-1 cursor-pointer"
+                        title="Excluir este registro"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span className="hidden sm:inline">Excluir</span>
                       </button>
                     )}
 

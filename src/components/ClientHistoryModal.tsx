@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Phone, Plus, RefreshCw } from 'lucide-react';
+import { X, Phone, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Client, Charge, CompanySettings } from '../types';
 import { dateBR, getChargeStatus, openWhatsApp } from '../utils/formatters';
 
@@ -14,6 +14,8 @@ interface ClientHistoryModalProps {
   onNewChargeForClient: (clientId: string) => void;
   onSendWhatsApp?: (client: Client, charge?: Charge) => void;
   onOpenRenewClient?: (client: Client) => void;
+  onDeleteCharge?: (chargeId: string) => void;
+  onDeleteClient?: (clientId: string) => void;
 }
 
 export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
@@ -27,6 +29,8 @@ export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
   onNewChargeForClient,
   onSendWhatsApp,
   onOpenRenewClient,
+  onDeleteCharge,
+  onDeleteClient,
 }) => {
   if (!isOpen || !client) return null;
 
@@ -155,6 +159,15 @@ export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
                                   Desfazer
                                 </button>
                               )}
+                              {onDeleteCharge && (
+                                <button
+                                  onClick={() => onDeleteCharge(ch.id)}
+                                  title="Excluir este vencimento"
+                                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -167,10 +180,25 @@ export const ClientHistoryModal: React.FC<ClientHistoryModalProps> = ({
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+          {onDeleteClient ? (
+            <button
+              onClick={() => {
+                onDeleteClient(client.id);
+                onClose();
+              }}
+              className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Excluir este cliente e todo o seu histórico"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              Excluir Cliente
+            </button>
+          ) : (
+            <div />
+          )}
           <button
             onClick={onClose}
-            className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-sm rounded-xl transition-colors"
+            className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-sm rounded-xl transition-colors"
           >
             Fechar
           </button>

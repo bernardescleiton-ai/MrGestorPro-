@@ -20,6 +20,8 @@ interface DueViewProps {
   onOpenEditClient?: (client: Client) => void;
   onDeleteClient?: (clientId: string) => void;
   onDeleteClientsBatch?: (clientIds: string[]) => void;
+  onDeleteCharge?: (chargeId: string) => void;
+  onDeleteChargesBatch?: (chargeIds: string[]) => void;
 }
 
 export const DueView: React.FC<DueViewProps> = ({
@@ -35,10 +37,12 @@ export const DueView: React.FC<DueViewProps> = ({
   onOpenEditClient,
   onDeleteClient,
   onDeleteClientsBatch,
+  onDeleteCharge,
+  onDeleteChargesBatch,
 }) => {
   const [activeTab, setActiveTab] = useState<DueTabFilter>(initialFilter);
   const [search, setSearch] = useState('');
-  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+  const [selectedChargeIds, setSelectedChargeIds] = useState<string[]>([]);
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportClientsList, setExportClientsList] = useState<Client[]>([]);
@@ -50,13 +54,13 @@ export const DueView: React.FC<DueViewProps> = ({
   useEffect(() => {
     if (initialFilter) {
       setActiveTab(initialFilter);
-      setSelectedClientIds([]);
+      setSelectedChargeIds([]);
     }
   }, [initialFilter]);
 
   const handleTabChange = (tab: DueTabFilter) => {
     setActiveTab(tab);
-    setSelectedClientIds([]);
+    setSelectedChargeIds([]);
   };
 
   const safeClients = useMemo(() => (Array.isArray(clients) ? clients : []), [clients]);
@@ -260,7 +264,12 @@ export const DueView: React.FC<DueViewProps> = ({
     return displayedItems.slice(startIndex, startIndex + duePageSize);
   }, [displayedItems, currentDuePage, duePageSize]);
 
-  // Unique clients available in the current displayed items
+  // All charge IDs available in current displayed items
+  const displayedChargeIds = useMemo(() => {
+    return displayedItems.map((item) => item.id);
+  }, [displayedItems]);
+
+  // Unique client IDs among displayed items
   const displayedClientIds = useMemo(() => {
     const ids = new Set<string>();
     displayedItems.forEach((item) => {
@@ -271,23 +280,23 @@ export const DueView: React.FC<DueViewProps> = ({
     return Array.from(ids);
   }, [displayedItems, clientMap]);
 
-  // Filter valid selected client ids
-  const activeSelectedClientIds = useMemo(() => {
-    const validSet = new Set(safeClients.map((c) => c.id));
-    return selectedClientIds.filter((id) => validSet.has(id));
-  }, [selectedClientIds, safeClients]);
+  // Filter valid selected charge IDs
+  const activeSelectedChargeIds = useMemo(() => {
+    const validSet = new Set(displayedItems.map((ch) => ch.id));
+    return selectedChargeIds.filter((id) => validSet.has(id));
+  }, [selectedChargeIds, displayedItems]);
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      setSelectedClientIds(displayedClientIds);
+      setSelectedChargeIds(displayedChargeIds);
     } else {
-      setSelectedClientIds([]);
+      setSelectedChargeIds([]);
     }
   };
 
-  const toggleSelectClient = (clientId: string) => {
-    setSelectedClientIds((prev) =>
-      prev.includes(clientId) ? prev.filter((id) => id !== clientId) : [...prev, clientId]
+  const toggleSelectCharge = (chargeId: string) => {
+    setSelectedChargeIds((prev) =>
+      prev.includes(chargeId) ? prev.filter((id) => id !== chargeId) : [...prev, chargeId]
     );
   };
 
@@ -626,19 +635,19 @@ export const DueView: React.FC<DueViewProps> = ({
         </button>
       </div>
 
-      {/* Bulk Action Bar for Selected Clients */}
-      {activeSelectedClientIds.length > 0 && (
+      {/* Bulk Action Bar for Selected Items */}
+      {activeSelectedChargeIds.length > 0 && (
         <div className="bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl animate-in fade-in duration-200 border border-slate-800">
           <div className="flex items-center gap-3">
             <span className="w-7 h-7 bg-blue-600 text-white rounded-xl flex items-center justify-center text-xs font-bold shadow-xs">
-              {activeSelectedClientIds.length}
+              {activeSelectedChargeIds.length}
             </span>
             <div>
               <div className="font-bold text-sm text-white">
-                {activeSelectedClientIds.length} cliente{activeSelectedClientIds.length > 1 ? 's' : ''} selecionado{activeSelectedClientIds.length > 1 ? 's' : ''}
+                {activeSelectedChargeIds.length} registro{activeSelectedChargeIds.length > 1 ? 's' : ''} selecionado{activeSelectedChargeIds.length > 1 ? 's' : ''}
               </div>
               <p className="text-[11px] text-slate-400 font-mono">
-                Copie os dados ou gere um arquivo completo com Nome, Telefone e Vencimento
+                Copie os dados ou exclua os registros selecionados
               </p>
             </div>
           </div>
@@ -646,8 +655,11 @@ export const DueView: React.FC<DueViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                const selectedList = activeSelectedClientIds
-                  .map((id) => clientMap.get(id))
+                const selectedList = activeSelectedChargeIds
+                  .map((id) => {
+                    const ch = charges.find((c) => c.id === id);
+                    return ch ? resolveClientForCharge(ch, clientLookup, safeClients, sentLogs) : null;
+                  })
                   .filter((c): c is Client => Boolean(c));
                 handleDirectCopy(selectedList);
               }}
@@ -657,14 +669,17 @@ export const DueView: React.FC<DueViewProps> = ({
               title="Copiar dados dos clientes selecionados para a área de transferência"
             >
               {copiedBatch ? <Check className="w-4 h-4 stroke-[3]" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedBatch ? 'Copiado!' : `Copiar Dados (${activeSelectedClientIds.length})`}</span>
+              <span>{copiedBatch ? 'Copiado!' : `Copiar Dados (${activeSelectedChargeIds.length})`}</span>
             </button>
 
             <button
               type="button"
               onClick={() => {
-                const selectedList = activeSelectedClientIds
-                  .map((id) => clientMap.get(id))
+                const selectedList = activeSelectedChargeIds
+                  .map((id) => {
+                    const ch = charges.find((c) => c.id === id);
+                    return ch ? resolveClientForCharge(ch, clientLookup, safeClients, sentLogs) : null;
+                  })
                   .filter((c): c is Client => Boolean(c));
                 setExportClientsList(selectedList);
                 setIsExportModalOpen(true);
@@ -679,19 +694,34 @@ export const DueView: React.FC<DueViewProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (onDeleteClientsBatch) {
-                  onDeleteClientsBatch(activeSelectedClientIds);
-                  setSelectedClientIds([]);
+                const chargeIdsToDelete = [...activeSelectedChargeIds];
+                const clientIdsToDelete = Array.from(
+                  new Set(
+                    chargeIdsToDelete
+                      .map((id) => charges.find((c) => c.id === id)?.clientId)
+                      .filter(Boolean) as string[]
+                  )
+                );
+                if (onDeleteChargesBatch) {
+                  onDeleteChargesBatch(chargeIdsToDelete);
+                } else if (onDeleteCharge) {
+                  chargeIdsToDelete.forEach((id) => onDeleteCharge(id));
                 }
+                if (onDeleteClientsBatch && clientIdsToDelete.length > 0) {
+                  onDeleteClientsBatch(clientIdsToDelete);
+                } else if (onDeleteClient && clientIdsToDelete.length > 0) {
+                  clientIdsToDelete.forEach((cid) => onDeleteClient(cid));
+                }
+                setSelectedChargeIds([]);
               }}
               className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs active:scale-95 cursor-pointer ml-auto sm:ml-0"
             >
-              <Trash2 className="w-4 h-4" /> Excluir
+              <Trash2 className="w-4 h-4" /> Excluir ({activeSelectedChargeIds.length})
             </button>
 
             <button
               type="button"
-              onClick={() => setSelectedClientIds([])}
+              onClick={() => setSelectedChargeIds([])}
               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
             >
               Desmarcar todos
@@ -715,18 +745,18 @@ export const DueView: React.FC<DueViewProps> = ({
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-            {displayedClientIds.length > 0 && (
+            {displayedChargeIds.length > 0 && (
               <label className="flex items-center gap-2 text-xs font-bold text-slate-600 bg-white px-3 py-2 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 select-none">
                 <input
                   type="checkbox"
                   checked={
-                    displayedClientIds.length > 0 &&
-                    displayedClientIds.every((id) => selectedClientIds.includes(id))
+                    displayedChargeIds.length > 0 &&
+                    displayedChargeIds.every((id) => selectedChargeIds.includes(id))
                   }
                   onChange={handleSelectAll}
-                  className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
+                  className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
                 />
-                <span>Selecionar Todos ({displayedClientIds.length})</span>
+                <span>Selecionar Todos ({displayedChargeIds.length})</span>
               </label>
             )}
 
@@ -764,7 +794,7 @@ export const DueView: React.FC<DueViewProps> = ({
                 const daysDiff = getItemDaysDiff(ch);
                 const statusBadge = getClientStatusBadge(ch.dueDate + (ch.dueTime ? `T${ch.dueTime}` : ''));
                 const isPaid = Boolean(ch.paid);
-                const isSelected = client ? selectedClientIds.includes(client.id) : false;
+                const isSelected = selectedChargeIds.includes(ch.id);
                 const clientDisplayName =
                   client?.name ||
                   (ch.note && ch.note !== 'Vencimento do Cliente' && ch.note !== 'Mensalidade do Cliente'
@@ -788,17 +818,15 @@ export const DueView: React.FC<DueViewProps> = ({
                   >
                     <div className="flex items-start sm:items-center gap-3 min-w-0">
                       {/* Checkbox for batch action */}
-                      {client && (
-                        <div className="pt-0.5 sm:pt-0">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleSelectClient(client.id)}
-                            className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
-                            title={`Selecionar ${client.name}`}
-                          />
-                        </div>
-                      )}
+                      <div className="pt-0.5 sm:pt-0">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectCharge(ch.id)}
+                          className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                          title={`Selecionar ${clientDisplayName}`}
+                        />
+                      </div>
 
                       <div className="space-y-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -903,18 +931,25 @@ export const DueView: React.FC<DueViewProps> = ({
                         </button>
                       )}
 
-                      {/* Explicit Delete Client Button */}
-                      {client && onDeleteClient && (
-                        <button
-                          type="button"
-                          onClick={() => onDeleteClient(client.id)}
-                          className="p-1.5 sm:px-2 sm:py-1.5 text-rose-600 hover:text-white hover:bg-rose-600 bg-rose-50 border border-rose-200/80 rounded-lg text-xs font-semibold transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
-                          title={`Excluir cliente ${client.name}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span className="hidden md:inline">Excluir</span>
-                        </button>
-                      )}
+                      {/* Explicit Delete Button for All Items */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onDeleteCharge) {
+                            onDeleteCharge(ch.id);
+                          }
+                          if (client && onDeleteClient) {
+                            onDeleteClient(client.id);
+                          } else if (!onDeleteCharge && onDeleteClient) {
+                            onDeleteClient(ch.clientId || ch.id);
+                          }
+                        }}
+                        className="p-1.5 sm:px-2.5 sm:py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-medium transition-colors active:scale-95 flex items-center gap-1 cursor-pointer"
+                        title={`Excluir ${clientDisplayName}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span className="hidden sm:inline">Excluir</span>
+                      </button>
                     </div>
                   </div>
                 );

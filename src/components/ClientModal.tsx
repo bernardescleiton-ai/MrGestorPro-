@@ -59,6 +59,7 @@ interface ClientModalProps {
   onClose: () => void;
   onSave: (clientData: Omit<Client, 'id' | 'createdAt'>, editId?: string) => void;
   onSaveBatch?: (payload: Omit<Client, 'id' | 'createdAt'>[] | BatchSavePayload) => void;
+  onDeleteClient?: (clientId: string) => void;
   clientToEdit?: Client | null;
   clients?: Client[];
 }
@@ -68,6 +69,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   onClose,
   onSave,
   onSaveBatch,
+  onDeleteClient,
   clientToEdit,
   clients,
 }) => {
@@ -1048,21 +1050,39 @@ export const ClientModal: React.FC<ClientModalProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all flex items-center gap-2"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                {clientToEdit ? 'Salvar Alterações' : 'Cadastrar Cliente'}
-              </button>
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+              {clientToEdit && onDeleteClient ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteClient(clientToEdit.id);
+                    onClose();
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Excluir este cliente permanentemente"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  Excluir Cliente
+                </button>
+              ) : (
+                <div />
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md transition-all flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {clientToEdit ? 'Salvar Alterações' : 'Cadastrar Cliente'}
+                </button>
+              </div>
             </div>
           </form>
         )}
