@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 import type { AppData } from '../types';
 import { subscribeToApiData, saveAppData, mergeAppData, fetchAppData } from '../lib/api';
+import { canonicalJson } from '../lib/firebase';
 import type { LiveToast } from './useAppData';
 import { checkAndTriggerDeviceNotifications } from '../utils/notifications';
-import { markHasPendingLocalChanges, syncLocalStateToFirebase, flushPendingDeletionsToFirestore } from '../lib/offlineSyncManager';
+import { markHasPendingLocalChanges, syncLocalStateToFirebase, flushPendingDeletionsToFirestore, hasPendingLocalChanges } from '../lib/offlineSyncManager';
 
 import { logger } from '../lib/logger';
 export const useCloudSync = ({
@@ -31,6 +32,7 @@ export const useCloudSync = ({
 }) => {
   const lastRemoteUpdateTimestamp = useRef<number>(0);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSyncResetMs = useRef<number>(0);
 
   useEffect(() => {
     fetchAppData().then((res) => {
@@ -38,8 +40,12 @@ export const useCloudSync = ({
         hasFetchedCloud.current = true;
         lastRemoteUpdateTimestamp.current = Date.now();
         const merged = mergeAppData(dataRef.current, res.data);
-        setRawData(merged);
-        lastSavedDataJsonRef.current = JSON.stringify({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
+        const currentHash = canonicalJson({ clients: dataRef.current.clients, charges: dataRef.current.charges, settings: dataRef.current.settings, sentLogs: dataRef.current.sentLogs });
+        const mergedHash = canonicalJson({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
+        if (currentHash !== mergedHash) {
+          setRawData(merged);
+        }
+        lastSavedDataJsonRef.current = mergedHash;
         try { localStorage.setItem('gc_v1_data', JSON.stringify(merged)); } catch {}
         // Trigger initial notification check after load
         setTimeout(() => {
@@ -55,11 +61,15 @@ export const useCloudSync = ({
 
   useEffect(() => {
     const handleSyncReset = () => {
-      // Auto flush pending local offline edits & deletions when coming back online
-      syncLocalStateToFirebase(dataRef.current).then((success) => {
-        if (success) setSyncError(null);
-      }).catch(() => {});
-      setSyncTrigger((prev) => prev + 1);
+      const now = Date.now();
+      if (now - lastSyncResetMs.current < 15000) return;
+      lastSyncResetMs.current = now;
+
+      if (hasPendingLocalChanges()) {
+        syncLocalStateToFirebase(dataRef.current).then((success) => {
+          if (success) setSyncError(null);
+        }).catch(() => {});
+      }
       if (dataRef.current) {
         checkAndTriggerDeviceNotifications(dataRef.current, setLiveToast);
       }
@@ -73,7 +83,7 @@ export const useCloudSync = ({
       window.removeEventListener('online', handleSyncReset);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [setSyncTrigger, setLiveToast]);
+  }, [setSyncError, setLiveToast]);
 
   useEffect(() => {
     const unsubscribe = subscribeToApiData(
@@ -81,12 +91,17 @@ export const useCloudSync = ({
         setSyncError(null);
         if (exists && cloudData) {
           hasFetchedCloud.current = true;
-          lastRemoteUpdateTimestamp.current = Date.now();
-          isRemoteUpdate.current = true;
           const merged = mergeAppData(dataRef.current, cloudData);
-          setRawData(merged);
-          lastSavedDataJsonRef.current = JSON.stringify({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
-          try { localStorage.setItem('gc_v1_data', JSON.stringify(merged)); } catch {}
+          const currentHash = canonicalJson({ clients: dataRef.current.clients, charges: dataRef.current.charges, settings: dataRef.current.settings, sentLogs: dataRef.current.sentLogs });
+          const mergedHash = canonicalJson({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
+          
+          if (currentHash !== mergedHash) {
+            lastRemoteUpdateTimestamp.current = Date.now();
+            isRemoteUpdate.current = true;
+            setRawData(merged);
+            lastSavedDataJsonRef.current = mergedHash;
+            try { localStorage.setItem('gc_v1_data', JSON.stringify(merged)); } catch {}
+          }
         } else if (!exists) {
           hasFetchedCloud.current = true;
           saveAppData(dataRef.current, 0).catch(() => {});

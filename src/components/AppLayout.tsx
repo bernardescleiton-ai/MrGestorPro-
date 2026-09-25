@@ -279,8 +279,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                   </span>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(liveToast.clientMessage!);
-                      alert('Mensagem copiada para a área de transferência!');
+                      if (navigator?.clipboard?.writeText && liveToast.clientMessage) {
+                        navigator.clipboard.writeText(liveToast.clientMessage);
+                      }
                     }}
                     className="text-[10px] text-blue-400 hover:underline cursor-pointer font-semibold"
                   >

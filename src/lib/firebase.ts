@@ -240,7 +240,7 @@ export function subscribeToAppData(
       snapshot.forEach((d) => {
         const clientItem = { id: d.id, ...d.data() } as Client;
         clients.push(clientItem);
-        cloudClientsCache.set(clientItem.id, JSON.stringify(clientItem));
+        cloudClientsCache.set(clientItem.id, canonicalJson(clientItem));
       });
       clientsLoaded = true;
       emit();
@@ -256,7 +256,7 @@ export function subscribeToAppData(
       snapshot.forEach((d) => {
         const chargeItem = { id: d.id, ...d.data() } as Charge;
         charges.push(chargeItem);
-        cloudChargesCache.set(chargeItem.id, JSON.stringify(chargeItem));
+        cloudChargesCache.set(chargeItem.id, canonicalJson(chargeItem));
       });
       chargesLoaded = true;
       emit();
@@ -272,7 +272,7 @@ export function subscribeToAppData(
       snapshot.forEach((d) => {
         const logItem = { id: d.id, ...d.data() } as SentMessageLog;
         sentLogs.push(logItem);
-        cloudLogsCache.set(logItem.id, JSON.stringify(logItem));
+        cloudLogsCache.set(logItem.id, canonicalJson(logItem));
       });
       logsLoaded = true;
       emit();
@@ -288,7 +288,7 @@ export function subscribeToAppData(
           const raw = d.data();
           if (raw.settings) {
             settings = { ...initialAppData.settings, ...raw.settings };
-            cloudSettingsHash = JSON.stringify(settings);
+            cloudSettingsHash = canonicalJson(settings);
           }
           if (typeof raw.updatedAt === 'number') updatedAt = raw.updatedAt;
         }
@@ -314,6 +314,24 @@ const cloudChargesCache = new Map<string, string>();
 const cloudLogsCache = new Map<string, string>();
 let cloudSettingsHash = '';
 
+export function canonicalJson(obj: any): string {
+  if (obj === null || obj === undefined) return '';
+  if (typeof obj !== 'object') return JSON.stringify(obj);
+  if (Array.isArray(obj)) {
+    return '[' + obj.map(canonicalJson).join(',') + ']';
+  }
+  const keys = Object.keys(obj).sort();
+  const pairs: string[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const val = obj[k];
+    if (val !== undefined && val !== null && val !== '') {
+      pairs.push(JSON.stringify(k) + ':' + canonicalJson(val));
+    }
+  }
+  return '{' + pairs.join(',') + '}';
+}
+
 // Object reference caches to avoid stringifying unchanged JS objects
 const clientObjCache = new Map<string, { obj: Client; json: string }>();
 const chargeObjCache = new Map<string, { obj: Charge; json: string }>();
@@ -324,7 +342,7 @@ function getClientJson(client: Client): string {
   if (cached && cached.obj === client) {
     return cached.json;
   }
-  const json = JSON.stringify(client);
+  const json = canonicalJson(client);
   clientObjCache.set(client.id, { obj: client, json });
   return json;
 }
@@ -334,7 +352,7 @@ function getChargeJson(charge: Charge): string {
   if (cached && cached.obj === charge) {
     return cached.json;
   }
-  const json = JSON.stringify(charge);
+  const json = canonicalJson(charge);
   chargeObjCache.set(charge.id, { obj: charge, json });
   return json;
 }
@@ -344,7 +362,7 @@ function getLogJson(log: SentMessageLog): string {
   if (cached && cached.obj === log) {
     return cached.json;
   }
-  const json = JSON.stringify(log);
+  const json = canonicalJson(log);
   logObjCache.set(log.id, { obj: log, json });
   return json;
 }
@@ -374,7 +392,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
 
   try {
     // 1. Check settings
-    const settingsJson = JSON.stringify(data.settings || {});
+    const settingsJson = canonicalJson(data.settings || {});
     const settingsChanged = cloudSettingsHash !== settingsJson;
 
     // 2. Identify dirty clients
@@ -450,7 +468,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
       const clientRef = doc(db, 'clients', client.id);
       const { id, ...rest } = client;
       currentBatch.set(clientRef, sanitizeDataForFirestore(rest), { merge: true });
-      cloudClientsCache.set(client.id, JSON.stringify(client));
+      cloudClientsCache.set(client.id, canonicalJson(client));
       opCount++;
       if (opCount >= 400) await commitCurrentBatch();
     }
@@ -459,7 +477,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
       const chargeRef = doc(db, 'charges', charge.id);
       const { id, ...rest } = charge;
       currentBatch.set(chargeRef, sanitizeDataForFirestore(rest), { merge: true });
-      cloudChargesCache.set(charge.id, JSON.stringify(charge));
+      cloudChargesCache.set(charge.id, canonicalJson(charge));
       opCount++;
       if (opCount >= 400) await commitCurrentBatch();
     }
@@ -468,7 +486,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
       const logRef = doc(db, 'sentLogs', log.id);
       const { id, ...rest } = log;
       currentBatch.set(logRef, sanitizeDataForFirestore(rest), { merge: true });
-      cloudLogsCache.set(log.id, JSON.stringify(log));
+      cloudLogsCache.set(log.id, canonicalJson(log));
       opCount++;
       if (opCount >= 400) await commitCurrentBatch();
     }
