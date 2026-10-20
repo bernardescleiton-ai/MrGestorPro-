@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import type { AppData } from '../types';
 import { subscribeToApiData, saveAppData, mergeAppData, fetchAppData } from '../lib/api';
 import { canonicalJson } from '../lib/firebase';
-import { checkAndTriggerDeviceNotifications } from '../utils/notifications';
 import { markHasPendingLocalChanges, syncLocalStateToFirebase, flushPendingDeletionsToFirestore, hasPendingLocalChanges } from '../lib/offlineSyncManager';
 
 import { logger } from '../lib/logger';
@@ -45,10 +44,6 @@ export const useCloudSync = ({
         }
         lastSavedDataJsonRef.current = mergedHash;
         try { localStorage.setItem('gc_v1_data', JSON.stringify(merged)); } catch {}
-        // Trigger initial notification check after load (native device notifications only)
-        setTimeout(() => {
-          checkAndTriggerDeviceNotifications(merged);
-        }, 1500);
       } else {
         hasFetchedCloud.current = true;
       }
@@ -67,9 +62,6 @@ export const useCloudSync = ({
         syncLocalStateToFirebase(dataRef.current).then((success) => {
           if (success) setSyncError(null);
         }).catch(() => {});
-      }
-      if (dataRef.current) {
-        checkAndTriggerDeviceNotifications(dataRef.current);
       }
     };
     window.addEventListener('focus', handleSyncReset);
@@ -185,16 +177,6 @@ export const useCloudSync = ({
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, []);
-
-  // Periodic device notifications check (every 60s instead of rapid 10s intervals)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (dataRef.current && document.visibilityState === 'visible') {
-        checkAndTriggerDeviceNotifications(dataRef.current);
-      }
-    }, 60000);
-    return () => clearInterval(interval);
   }, []);
 
   return null;

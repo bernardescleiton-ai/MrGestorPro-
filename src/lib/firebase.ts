@@ -189,7 +189,7 @@ export function subscribeToAppData(
     } catch {}
     return { ...initialAppData.settings };
   })();
-  let updatedAt = Date.now();
+  let updatedAt = 0;
 
   let clientsLoaded = false;
   let chargesLoaded = false;
@@ -318,7 +318,11 @@ export function canonicalJson(obj: any): string {
   if (obj === null || obj === undefined) return '';
   if (typeof obj !== 'object') return JSON.stringify(obj);
   if (Array.isArray(obj)) {
-    return '[' + obj.map(canonicalJson).join(',') + ']';
+    const hasIds = obj.length > 0 && obj[0] && typeof obj[0] === 'object' && 'id' in obj[0];
+    const items = hasIds
+      ? [...obj].sort((a, b) => String(a?.id || '').localeCompare(String(b?.id || '')))
+      : obj;
+    return '[' + items.map(canonicalJson).join(',') + ']';
   }
   const keys = Object.keys(obj).sort();
   const pairs: string[] = [];
@@ -466,7 +470,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
 
     for (const client of dirtyClients) {
       const clientRef = doc(db, 'clients', client.id);
-      const { id, ...rest } = client;
+      const { id: _id, ...rest } = client;
       currentBatch.set(clientRef, sanitizeDataForFirestore(rest), { merge: true });
       cloudClientsCache.set(client.id, canonicalJson(client));
       opCount++;
@@ -475,7 +479,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
 
     for (const charge of dirtyCharges) {
       const chargeRef = doc(db, 'charges', charge.id);
-      const { id, ...rest } = charge;
+      const { id: _id, ...rest } = charge;
       currentBatch.set(chargeRef, sanitizeDataForFirestore(rest), { merge: true });
       cloudChargesCache.set(charge.id, canonicalJson(charge));
       opCount++;
@@ -484,7 +488,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
 
     for (const log of dirtyLogs) {
       const logRef = doc(db, 'sentLogs', log.id);
-      const { id, ...rest } = log;
+      const { id: _id, ...rest } = log;
       currentBatch.set(logRef, sanitizeDataForFirestore(rest), { merge: true });
       cloudLogsCache.set(log.id, canonicalJson(log));
       opCount++;

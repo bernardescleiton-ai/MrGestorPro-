@@ -1,4 +1,4 @@
-import { AppData, CompanySettings, SystemRestorePoint } from '../types';
+import { AppData, CompanySettings } from '../types';
 import { initialAppData } from '../data/initialData';
 import {
   subscribeToAppData, 
@@ -227,17 +227,9 @@ export function subscribeToApiData(
 
 import { getPendingDeletions } from './offlineSyncManager';
 
-function isRecentRecord(record: any, maxAgeMs = 5 * 60 * 1000): boolean {
-  if (!record) return false;
-  const timeStr = record.createdAt || record.timestamp || record.paidAt;
-  if (!timeStr) return false;
-  const time = new Date(timeStr).getTime();
-  if (isNaN(time) || time <= 0) return false;
-  return Date.now() - time < maxAgeMs;
-}
-
-// Merge AppData: Cloud Firestore snapshot is authoritative for remote state.
-// Filter out local pending deletions and preserve recently created/updated local records.
+// Merge AppData: Cloud Firestore snapshot and local storage merge seamlessly.
+// Respect explicit deletions, keep full union of active records from both sources,
+// and prioritize the newer record when the same entity was modified.
 export function mergeAppData(local: AppData, cloud: AppData): AppData {
   const pendingDeletions = getPendingDeletions();
   const deletedClientIds = new Set(pendingDeletions.clients);
@@ -256,57 +248,37 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
   const cloudUpdated = typeof cloud?.updatedAt === 'number' ? cloud.updatedAt : 0;
   const isLocalNewer = localUpdated > cloudUpdated;
 
-  // 1. Clients: If local is newer, keep local modifications; otherwise prioritize cloud + recent local
-  let finalClients: Client[];
-  if (isLocalNewer) {
-    const localMap = new Map<string, Client>();
-    for (const c of localClients) {
-      if (c?.id && !deletedClientIds.has(c.id)) localMap.set(c.id, c);
+  // 1. Clients: Inclusive union of cloud and local records (excluding explicit deletions)
+  const clientMap = new Map<string, Client>();
+  for (const c of cloudClients) {
+    if (c?.id && !deletedClientIds.has(c.id)) {
+      clientMap.set(c.id, c);
     }
-    for (const c of cloudClients) {
-      if (c?.id && !deletedClientIds.has(c.id) && !localMap.has(c.id)) {
-        localMap.set(c.id, c);
-      }
-    }
-    finalClients = Array.from(localMap.values());
-  } else {
-    const cloudMap = new Map<string, Client>();
-    for (const c of cloudClients) {
-      if (c?.id && !deletedClientIds.has(c.id)) cloudMap.set(c.id, c);
-    }
-    for (const c of localClients) {
-      if (c?.id && !deletedClientIds.has(c.id) && !cloudMap.has(c.id) && isRecentRecord(c)) {
-        cloudMap.set(c.id, c);
-      }
-    }
-    finalClients = Array.from(cloudMap.values());
   }
+  for (const c of localClients) {
+    if (c?.id && !deletedClientIds.has(c.id)) {
+      if (!clientMap.has(c.id) || isLocalNewer) {
+        clientMap.set(c.id, c);
+      }
+    }
+  }
+  const finalClients = Array.from(clientMap.values());
 
-  // 2. Charges: If local is newer, keep local charges; otherwise prioritize cloud + recent local
-  let finalCharges: Charge[];
-  if (isLocalNewer) {
-    const localChargeMap = new Map<string, Charge>();
-    for (const ch of localCharges) {
-      if (ch?.id && !deletedChargeIds.has(ch.id)) localChargeMap.set(ch.id, ch);
+  // 2. Charges: Inclusive union of cloud and local records (excluding explicit deletions)
+  const chargeMap = new Map<string, Charge>();
+  for (const ch of cloudCharges) {
+    if (ch?.id && !deletedChargeIds.has(ch.id)) {
+      chargeMap.set(ch.id, ch);
     }
-    for (const ch of cloudCharges) {
-      if (ch?.id && !deletedChargeIds.has(ch.id) && !localChargeMap.has(ch.id)) {
-        localChargeMap.set(ch.id, ch);
-      }
-    }
-    finalCharges = Array.from(localChargeMap.values());
-  } else {
-    const cloudChargeMap = new Map<string, Charge>();
-    for (const ch of cloudCharges) {
-      if (ch?.id && !deletedChargeIds.has(ch.id)) cloudChargeMap.set(ch.id, ch);
-    }
-    for (const ch of localCharges) {
-      if (ch?.id && !deletedChargeIds.has(ch.id) && !cloudChargeMap.has(ch.id) && isRecentRecord(ch)) {
-        cloudChargeMap.set(ch.id, ch);
-      }
-    }
-    finalCharges = Array.from(cloudChargeMap.values());
   }
+  for (const ch of localCharges) {
+    if (ch?.id && !deletedChargeIds.has(ch.id)) {
+      if (!chargeMap.has(ch.id) || isLocalNewer) {
+        chargeMap.set(ch.id, ch);
+      }
+    }
+  }
+  const finalCharges = Array.from(chargeMap.values());
 
   // 3. SentLogs: Merge unique logs
   const logMap = new Map<string, SentMessageLog>();
