@@ -432,8 +432,33 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
       }
     }
 
+    // Removed clients (exist in cloud cache but not in current data)
+    const currentClientIds = new Set((data.clients || []).map((c) => c?.id).filter(Boolean));
+    const removedClientIds: string[] = [];
+    for (const cachedId of cloudClientsCache.keys()) {
+      if (!currentClientIds.has(cachedId)) {
+        removedClientIds.push(cachedId);
+      }
+    }
+
+    // Removed charges (exist in cloud cache but not in current data)
+    const currentChargeIds = new Set((data.charges || []).map((ch) => ch?.id).filter(Boolean));
+    const removedChargeIds: string[] = [];
+    for (const cachedId of cloudChargesCache.keys()) {
+      if (!currentChargeIds.has(cachedId)) {
+        removedChargeIds.push(cachedId);
+      }
+    }
+
     // If nothing changed, exit instantly (0 network operations, 0 delay!)
-    if (!settingsChanged && dirtyClients.length === 0 && dirtyCharges.length === 0 && dirtyLogs.length === 0) {
+    if (
+      !settingsChanged &&
+      dirtyClients.length === 0 &&
+      dirtyCharges.length === 0 &&
+      dirtyLogs.length === 0 &&
+      removedClientIds.length === 0 &&
+      removedChargeIds.length === 0
+    ) {
       return;
     }
 
@@ -448,6 +473,21 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
         opCount = 0;
       }
     };
+
+    // Process removals first
+    for (const removedId of removedClientIds) {
+      currentBatch.delete(doc(db, 'clients', removedId));
+      cloudClientsCache.delete(removedId);
+      opCount++;
+      if (opCount >= 400) await commitCurrentBatch();
+    }
+
+    for (const removedId of removedChargeIds) {
+      currentBatch.delete(doc(db, 'charges', removedId));
+      cloudChargesCache.delete(removedId);
+      opCount++;
+      if (opCount >= 400) await commitCurrentBatch();
+    }
 
     if (settingsChanged) {
       const settingsRef = doc(db, 'app_settings', SETTINGS_DOC_ID);
@@ -511,7 +551,7 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
 
 // Explicit deletion functions for user actions
 export async function deleteClientFromFirestore(clientId: string): Promise<void> {
-  if (isQuotaExhausted || !clientId) return;
+  if (!clientId) return;
   cloudClientsCache.delete(clientId);
   try {
     await deleteDoc(doc(db, 'clients', clientId));
@@ -526,7 +566,7 @@ export async function deleteClientFromFirestore(clientId: string): Promise<void>
 }
 
 export async function deleteClientsBatchFromFirestore(clientIds: string[]): Promise<void> {
-  if (isQuotaExhausted || !clientIds || clientIds.length === 0) return;
+  if (!clientIds || clientIds.length === 0) return;
   for (const id of clientIds) {
     if (id) cloudClientsCache.delete(id);
   }
@@ -549,7 +589,7 @@ export async function deleteClientsBatchFromFirestore(clientIds: string[]): Prom
 }
 
 export async function deleteChargeFromFirestore(chargeId: string): Promise<void> {
-  if (isQuotaExhausted || !chargeId) return;
+  if (!chargeId) return;
   cloudChargesCache.delete(chargeId);
   try {
     await deleteDoc(doc(db, 'charges', chargeId));
@@ -564,7 +604,7 @@ export async function deleteChargeFromFirestore(chargeId: string): Promise<void>
 }
 
 export async function deleteChargesBatchFromFirestore(chargeIds: string[]): Promise<void> {
-  if (isQuotaExhausted || !chargeIds || chargeIds.length === 0) return;
+  if (!chargeIds || chargeIds.length === 0) return;
   for (const id of chargeIds) {
     if (id) cloudChargesCache.delete(id);
   }

@@ -225,16 +225,13 @@ export function subscribeToApiData(
   );
 }
 
-import { getPendingDeletions } from './offlineSyncManager';
+import { getAllDeletedEntityIds } from './offlineSyncManager';
 
 // Merge AppData: Cloud Firestore snapshot and local storage merge seamlessly.
 // Respect explicit deletions, keep full union of active records from both sources,
 // and prioritize the newer record when the same entity was modified.
 export function mergeAppData(local: AppData, cloud: AppData): AppData {
-  const pendingDeletions = getPendingDeletions();
-  const deletedClientIds = new Set(pendingDeletions.clients);
-  const deletedChargeIds = new Set(pendingDeletions.charges);
-  const deletedLogIds = new Set(pendingDeletions.logs);
+  const { clients: deletedClientIds, charges: deletedChargeIds, logs: deletedLogIds } = getAllDeletedEntityIds();
 
   const cloudClients = Array.isArray(cloud?.clients) ? cloud.clients : [];
   const cloudCharges = Array.isArray(cloud?.charges) ? cloud.charges : [];

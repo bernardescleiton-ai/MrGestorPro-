@@ -12,11 +12,127 @@ import type { AppData } from '../types';
 
 const DELETION_QUEUE_KEY = 'gc_pending_deletions_v1';
 const PENDING_SYNC_FLAG_KEY = 'gc_pending_sync_flag_v1';
+const DELETED_TOMBSTONES_KEY = 'gc_deleted_tombstones_v1';
 
 export interface PendingDeletions {
   clients: string[];
   charges: string[];
   logs: string[];
+}
+
+export interface TombstoneStore {
+  clients: string[];
+  charges: string[];
+  logs: string[];
+}
+
+export function getDeletedTombstones(): TombstoneStore {
+  try {
+    const raw = localStorage.getItem(DELETED_TOMBSTONES_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        clients: Array.isArray(parsed.clients) ? parsed.clients : [],
+        charges: Array.isArray(parsed.charges) ? parsed.charges : [],
+        logs: Array.isArray(parsed.logs) ? parsed.logs : [],
+      };
+    }
+  } catch (e) {
+    logger.error('Error reading tombstones:', e);
+  }
+  return { clients: [], charges: [], logs: [] };
+}
+
+export function saveDeletedTombstones(store: TombstoneStore): void {
+  try {
+    localStorage.setItem(DELETED_TOMBSTONES_KEY, JSON.stringify(store));
+  } catch (e) {
+    logger.error('Error saving tombstones:', e);
+  }
+}
+
+export function addClientTombstone(id: string): void {
+  if (!id) return;
+  const store = getDeletedTombstones();
+  if (!store.clients.includes(id)) {
+    store.clients.push(id);
+    saveDeletedTombstones(store);
+  }
+}
+
+export function addClientsBatchTombstone(ids: string[]): void {
+  if (!ids || !ids.length) return;
+  const store = getDeletedTombstones();
+  let changed = false;
+  for (const id of ids) {
+    if (id && !store.clients.includes(id)) {
+      store.clients.push(id);
+      changed = true;
+    }
+  }
+  if (changed) saveDeletedTombstones(store);
+}
+
+export function addChargeTombstone(id: string): void {
+  if (!id) return;
+  const store = getDeletedTombstones();
+  if (!store.charges.includes(id)) {
+    store.charges.push(id);
+    saveDeletedTombstones(store);
+  }
+}
+
+export function addChargesBatchTombstone(ids: string[]): void {
+  if (!ids || !ids.length) return;
+  const store = getDeletedTombstones();
+  let changed = false;
+  for (const id of ids) {
+    if (id && !store.charges.includes(id)) {
+      store.charges.push(id);
+      changed = true;
+    }
+  }
+  if (changed) saveDeletedTombstones(store);
+}
+
+export function addLogTombstone(id: string): void {
+  if (!id) return;
+  const store = getDeletedTombstones();
+  if (!store.logs.includes(id)) {
+    store.logs.push(id);
+    saveDeletedTombstones(store);
+  }
+}
+
+export function removeClientTombstone(id: string): void {
+  if (!id) return;
+  const store = getDeletedTombstones();
+  if (store.clients.includes(id)) {
+    store.clients = store.clients.filter((cid) => cid !== id);
+    saveDeletedTombstones(store);
+  }
+}
+
+export function removeClientsBatchTombstone(ids: string[]): void {
+  if (!ids || !ids.length) return;
+  const idSet = new Set(ids);
+  const store = getDeletedTombstones();
+  store.clients = store.clients.filter((cid) => !idSet.has(cid));
+  saveDeletedTombstones(store);
+}
+
+export function getAllDeletedEntityIds(): {
+  clients: Set<string>;
+  charges: Set<string>;
+  logs: Set<string>;
+} {
+  const pending = getPendingDeletions();
+  const tombstones = getDeletedTombstones();
+  return {
+    clients: new Set([...pending.clients, ...tombstones.clients]),
+    charges: new Set([...pending.charges, ...tombstones.charges]),
+    logs: new Set([...pending.logs, ...tombstones.logs]),
+  };
 }
 
 export function getPendingDeletions(): PendingDeletions {
@@ -46,6 +162,7 @@ function savePendingDeletions(deletions: PendingDeletions): void {
 
 export function trackClientDeletion(id: string): void {
   if (!id) return;
+  addClientTombstone(id);
   const current = getPendingDeletions();
   if (!current.clients.includes(id)) {
     current.clients.push(id);
@@ -56,6 +173,7 @@ export function trackClientDeletion(id: string): void {
 
 export function trackClientsBatchDeletion(ids: string[]): void {
   if (!ids || !ids.length) return;
+  addClientsBatchTombstone(ids);
   const current = getPendingDeletions();
   let changed = false;
   for (const id of ids) {
@@ -72,6 +190,7 @@ export function trackClientsBatchDeletion(ids: string[]): void {
 
 export function trackChargeDeletion(id: string): void {
   if (!id) return;
+  addChargeTombstone(id);
   const current = getPendingDeletions();
   if (!current.charges.includes(id)) {
     current.charges.push(id);
@@ -82,6 +201,7 @@ export function trackChargeDeletion(id: string): void {
 
 export function trackChargesBatchDeletion(ids: string[]): void {
   if (!ids || !ids.length) return;
+  addChargesBatchTombstone(ids);
   const current = getPendingDeletions();
   let changed = false;
   for (const id of ids) {
@@ -98,6 +218,7 @@ export function trackChargesBatchDeletion(ids: string[]): void {
 
 export function trackLogDeletion(id: string): void {
   if (!id) return;
+  addLogTombstone(id);
   const current = getPendingDeletions();
   if (!current.logs.includes(id)) {
     current.logs.push(id);

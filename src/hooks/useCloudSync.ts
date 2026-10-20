@@ -109,29 +109,22 @@ export const useCloudSync = ({
 
   // Non-blocking local persistence + debounced background cloud synchronization
   useEffect(() => {
-    let localSaveTimer: NodeJS.Timeout | null = null;
     try {
-      // 1. Non-blocking local persistence to device storage (0ms main-thread cost)
-      localSaveTimer = setTimeout(() => {
-        try {
-          localStorage.setItem('gc_v1_data', JSON.stringify(data));
-        } catch (e) {
-          logger.error('Error saving localStorage:', e);
-        }
-      }, 0);
+      // 1. Immediately persist user changes to local device storage
+      try {
+        localStorage.setItem('gc_v1_data', JSON.stringify(data));
+      } catch (e) {
+        logger.error('Error saving localStorage:', e);
+      }
 
       // 2. Guard against echoing remote cloud updates back to Firestore
-      if (isRemoteUpdate.current || Date.now() - lastRemoteUpdateTimestamp.current < 2500) {
+      if (isRemoteUpdate.current) {
         isRemoteUpdate.current = false;
-        return () => {
-          if (localSaveTimer) clearTimeout(localSaveTimer);
-        };
+        return;
       }
 
       if (!hasFetchedCloud.current) {
-        return () => {
-          if (localSaveTimer) clearTimeout(localSaveTimer);
-        };
+        return;
       }
 
       markHasPendingLocalChanges();

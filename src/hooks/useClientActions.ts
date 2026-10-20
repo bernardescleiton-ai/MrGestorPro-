@@ -5,8 +5,16 @@ import type { RenewalToastData } from '../components/RenewalSuccessToast';
 import { isDuplicateClientName } from '../components/ClientModal';
 import { calculateRenewalDueDate, formatDateTimeBR, normalizePhone } from '../utils/formatters';
 import { sendWhatsAppMessage } from '../utils/whatsappMediaSender';
-import { deleteChargeFromFirestore, deleteClientFromFirestore } from '../lib/api';
-import { trackClientDeletion, trackClientsBatchDeletion, trackChargeDeletion, trackChargesBatchDeletion, markHasPendingLocalChanges } from '../lib/offlineSyncManager';
+import { deleteChargeFromFirestore, deleteClientFromFirestore, deleteClientsBatchFromFirestore } from '../lib/api';
+import {
+  trackClientDeletion,
+  trackClientsBatchDeletion,
+  trackChargeDeletion,
+  trackChargesBatchDeletion,
+  removeClientTombstone,
+  removeClientsBatchTombstone,
+  markHasPendingLocalChanges
+} from '../lib/offlineSyncManager';
 
 export const useClientActions = ({
   data, setData, generateUUID, setClientToEdit, setIsClientModalOpen, setRenewalClient,
@@ -71,6 +79,7 @@ export const useClientActions = ({
     const duplicate = isDuplicateClientName(trimmedName, data.clients, editId, clientData.phone);
     const targetClientId = editId || (duplicate ? duplicate.id : generateUUID());
     const isUpdatingExisting = Boolean(editId || duplicate);
+    removeClientTombstone(targetClientId);
 
     setData((prev) => {
       const duplicate = isDuplicateClientName(trimmedName, prev.clients, editId, clientData.phone);
@@ -257,32 +266,72 @@ export const useClientActions = ({
 
   const handleDeleteClient = useCallback((clientId: string) => {
     const client = data.clients.find((c) => c.id === clientId);
-    setConfirmModal({ isOpen: true, title: 'Excluir Cliente', message: `Deseja realmente excluir o cliente "${client?.name || 'Cliente'}"? Todas as cobranças associadas a ele também serão removidas.`, onConfirm: () => {
-      const associatedCharges = data.charges.filter((ch) => ch.clientId === clientId);
-      trackClientDeletion(clientId);
-      for (const ch of associatedCharges) {
-        trackChargeDeletion(ch.id);
-      }
-      setData((prev) => ({ ...prev, clients: prev.clients.filter((c) => c.id !== clientId), charges: prev.charges.filter((ch) => ch.clientId !== clientId) }));
-      if (historyClient?.id === clientId) setHistoryClient(null);
-      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-      Promise.all([deleteClientFromFirestore(clientId).catch(() => {}), ...associatedCharges.map((ch) => deleteChargeFromFirestore(ch.id).catch(() => {}))]).catch(() => {});
-    } });
-  }, [data, historyClient, setConfirmModal, setData, setHistoryClient]);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Cliente',
+      message: `Deseja realmente excluir o cliente "${client?.name || 'Cliente'}"? Todas as cobranças associadas a ele também serão removidas.`,
+      onConfirm: () => {
+        const associatedCharges = data.charges.filter((ch) => ch.clientId === clientId);
+        trackClientDeletion(clientId);
+        for (const ch of associatedCharges) {
+          trackChargeDeletion(ch.id);
+        }
+        setData((prev) => ({
+          ...prev,
+          clients: prev.clients.filter((c) => c.id !== clientId),
+          charges: prev.charges.filter((ch) => ch.clientId !== clientId),
+        }));
+        if (historyClient?.id === clientId) setHistoryClient(null);
+        setClientToEdit(null);
+        setIsClientModalOpen(false);
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        Promise.all([
+          deleteClientFromFirestore(clientId).catch(() => {}),
+          ...associatedCharges.map((ch) => deleteChargeFromFirestore(ch.id).catch(() => {})),
+        ]).catch(() => {});
+        if (setLiveToast) {
+          setLiveToast({
+            title: 'Cliente Excluído',
+            message: `Cliente "${client?.name || 'Cliente'}" excluído com sucesso.`,
+          });
+        }
+      },
+    });
+  }, [data, historyClient, setConfirmModal, setData, setHistoryClient, setClientToEdit, setIsClientModalOpen, setLiveToast]);
 
   const handleDeleteBatch = useCallback((clientIds: string[]) => {
     if (!clientIds.length) return;
-    setConfirmModal({ isOpen: true, title: 'Excluir Clientes Selecionados', message: `Deseja realmente excluir os ${clientIds.length} clientes selecionados? Todas as cobranças associadas a eles também serão removidas.`, onConfirm: () => {
-      const idSet = new Set(clientIds);
-      const associatedCharges = data.charges.filter((ch) => idSet.has(ch.clientId));
-      trackClientsBatchDeletion(clientIds);
-      trackChargesBatchDeletion(associatedCharges.map((ch) => ch.id));
-      setData((prev) => ({ ...prev, clients: prev.clients.filter((c) => !idSet.has(c.id)), charges: prev.charges.filter((ch) => !idSet.has(ch.clientId)) }));
-      if (historyClient && idSet.has(historyClient.id)) setHistoryClient(null);
-      setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-      Promise.all([...Array.from(idSet).map((cid) => deleteClientFromFirestore(cid).catch(() => {})), ...associatedCharges.map((ch) => deleteChargeFromFirestore(ch.id).catch(() => {}))]).catch(() => {});
-    } });
-  }, [data, historyClient, setConfirmModal, setData, setHistoryClient]);
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Clientes Selecionados',
+      message: `Deseja realmente excluir os ${clientIds.length} clientes selecionados? Todas as cobranças associadas a eles também serão removidas.`,
+      onConfirm: () => {
+        const idSet = new Set(clientIds);
+        const associatedCharges = data.charges.filter((ch) => idSet.has(ch.clientId));
+        trackClientsBatchDeletion(clientIds);
+        trackChargesBatchDeletion(associatedCharges.map((ch) => ch.id));
+        setData((prev) => ({
+          ...prev,
+          clients: prev.clients.filter((c) => !idSet.has(c.id)),
+          charges: prev.charges.filter((ch) => !idSet.has(ch.clientId)),
+        }));
+        if (historyClient && idSet.has(historyClient.id)) setHistoryClient(null);
+        setClientToEdit(null);
+        setIsClientModalOpen(false);
+        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        Promise.all([
+          deleteClientsBatchFromFirestore(clientIds).catch(() => {}),
+          ...associatedCharges.map((ch) => deleteChargeFromFirestore(ch.id).catch(() => {})),
+        ]).catch(() => {});
+        if (setLiveToast) {
+          setLiveToast({
+            title: 'Clientes Excluídos',
+            message: `${clientIds.length} cliente(s) excluído(s) com sucesso.`,
+          });
+        }
+      },
+    });
+  }, [data, historyClient, setConfirmModal, setData, setHistoryClient, setClientToEdit, setIsClientModalOpen, setLiveToast]);
 
   return { handleOpenNewClient, handleOpenEditClient, handleOpenRenewClient, handleConfirmRenewal, handleSaveRenewalTemplate, handleSaveClient, handleUpdateClientPhone, handleSaveBatch, handleDeleteClient, handleDeleteBatch };
 };

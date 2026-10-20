@@ -6,6 +6,7 @@ import { useCloudSync } from './hooks/useCloudSync';
 import { useClientActions } from './hooks/useClientActions';
 import { useChargeActions } from './hooks/useChargeActions';
 import { useMessagingActions } from './hooks/useMessagingActions';
+import { removeClientsBatchTombstone } from './lib/offlineSyncManager';
 
 export default function App() {
   const app = useAppData();
@@ -55,6 +56,9 @@ export default function App() {
   });
 
   const handleImportData = (newData: { settings: Parameters<typeof chargeActions.handleSaveSettings>[0]; clients: import('./types').Client[]; charges: import('./types').Charge[] }) => {
+    if (newData.clients && newData.clients.length > 0) {
+      removeClientsBatchTombstone(newData.clients.map((c) => c.id));
+    }
     app.setData((prev) => ({ ...prev, settings: newData.settings || prev.settings, clients: newData.clients || prev.clients, charges: newData.charges || prev.charges }));
   };
 
