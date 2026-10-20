@@ -5,7 +5,7 @@ import type { RenewalToastData } from '../components/RenewalSuccessToast';
 import { isDuplicateClientName } from '../components/ClientModal';
 import { calculateRenewalDueDate, formatDateTimeBR, normalizePhone } from '../utils/formatters';
 import { sendWhatsAppMessage } from '../utils/whatsappMediaSender';
-import { deleteChargeFromFirestore, deleteClientFromFirestore, deleteClientsBatchFromFirestore } from '../lib/api';
+import { deleteChargeFromFirestore, deleteClientFromFirestore, deleteClientsBatchFromFirestore, saveAppData } from '../lib/api';
 import {
   trackClientDeletion,
   trackClientsBatchDeletion,
@@ -276,19 +276,21 @@ export const useClientActions = ({
         for (const ch of associatedCharges) {
           trackChargeDeletion(ch.id);
         }
-        setData((prev) => ({
-          ...prev,
-          clients: prev.clients.filter((c) => c.id !== clientId),
-          charges: prev.charges.filter((ch) => ch.clientId !== clientId),
-        }));
+        const nextData = {
+          ...data,
+          clients: data.clients.filter((c) => c.id !== clientId),
+          charges: data.charges.filter((ch) => ch.clientId !== clientId),
+          updatedAt: Date.now(),
+        };
+        setData(nextData);
+        saveAppData(nextData).catch(() => {});
+        try {
+          localStorage.setItem('gc_v1_data', JSON.stringify(nextData));
+        } catch {}
         if (historyClient?.id === clientId) setHistoryClient(null);
         setClientToEdit(null);
         setIsClientModalOpen(false);
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-        Promise.all([
-          deleteClientFromFirestore(clientId).catch(() => {}),
-          ...associatedCharges.map((ch) => deleteChargeFromFirestore(ch.id).catch(() => {})),
-        ]).catch(() => {});
         if (setLiveToast) {
           setLiveToast({
             title: 'Cliente Excluído',
@@ -310,19 +312,21 @@ export const useClientActions = ({
         const associatedCharges = data.charges.filter((ch) => idSet.has(ch.clientId));
         trackClientsBatchDeletion(clientIds);
         trackChargesBatchDeletion(associatedCharges.map((ch) => ch.id));
-        setData((prev) => ({
-          ...prev,
-          clients: prev.clients.filter((c) => !idSet.has(c.id)),
-          charges: prev.charges.filter((ch) => !idSet.has(ch.clientId)),
-        }));
+        const nextData = {
+          ...data,
+          clients: data.clients.filter((c) => !idSet.has(c.id)),
+          charges: data.charges.filter((ch) => !idSet.has(ch.clientId)),
+          updatedAt: Date.now(),
+        };
+        setData(nextData);
+        saveAppData(nextData).catch(() => {});
+        try {
+          localStorage.setItem('gc_v1_data', JSON.stringify(nextData));
+        } catch {}
         if (historyClient && idSet.has(historyClient.id)) setHistoryClient(null);
         setClientToEdit(null);
         setIsClientModalOpen(false);
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
-        Promise.all([
-          deleteClientsBatchFromFirestore(clientIds).catch(() => {}),
-          ...associatedCharges.map((ch) => deleteChargeFromFirestore(ch.id).catch(() => {})),
-        ]).catch(() => {});
         if (setLiveToast) {
           setLiveToast({
             title: 'Clientes Excluídos',
