@@ -37,6 +37,7 @@ export default function App() {
     historyClient: app.historyClient,
     setHistoryClient: app.setHistoryClient,
     setLiveToast: app.setLiveToast,
+    dataRef: app.dataRef,
   });
 
   const chargeActions = useChargeActions({

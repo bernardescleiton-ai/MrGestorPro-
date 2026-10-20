@@ -19,7 +19,7 @@ import {
 export const useClientActions = ({
   data, setData, generateUUID, setClientToEdit, setIsClientModalOpen, setRenewalClient,
   setIsRenewalModalOpen, setRenewalToast, setConfirmModal, historyClient, setHistoryClient,
-  setLiveToast,
+  setLiveToast, dataRef,
 }: {
   data: AppData;
   setData: (update: AppData | ((prev: AppData) => AppData)) => void;
@@ -33,6 +33,7 @@ export const useClientActions = ({
   historyClient: Client | null;
   setHistoryClient: (client: Client | null) => void;
   setLiveToast?: React.Dispatch<React.SetStateAction<LiveToast | null>>;
+  dataRef?: React.MutableRefObject<AppData>;
 }) => {
   const handleOpenNewClient = useCallback(() => { setClientToEdit(null); setIsClientModalOpen(true); }, []);
   const handleOpenEditClient = useCallback((client: Client) => { setClientToEdit(client); setIsClientModalOpen(true); }, []);
@@ -265,21 +266,23 @@ export const useClientActions = ({
   }, [generateUUID, setData, setLiveToast]);
 
   const handleDeleteClient = useCallback((clientId: string) => {
-    const client = data.clients.find((c) => c.id === clientId);
+    const currentData = dataRef ? dataRef.current : data;
+    const client = currentData.clients.find((c) => c.id === clientId);
     setConfirmModal({
       isOpen: true,
       title: 'Excluir Cliente',
       message: `Deseja realmente excluir o cliente "${client?.name || 'Cliente'}"? Todas as cobranças associadas a ele também serão removidas.`,
       onConfirm: () => {
-        const associatedCharges = data.charges.filter((ch) => ch.clientId === clientId);
+        const freshData = dataRef ? dataRef.current : data;
+        const associatedCharges = freshData.charges.filter((ch) => ch.clientId === clientId);
         trackClientDeletion(clientId);
         for (const ch of associatedCharges) {
           trackChargeDeletion(ch.id);
         }
         const nextData = {
-          ...data,
-          clients: data.clients.filter((c) => c.id !== clientId),
-          charges: data.charges.filter((ch) => ch.clientId !== clientId),
+          ...freshData,
+          clients: freshData.clients.filter((c) => c.id !== clientId),
+          charges: freshData.charges.filter((ch) => ch.clientId !== clientId),
           updatedAt: Date.now(),
         };
         setData(nextData);
@@ -299,7 +302,7 @@ export const useClientActions = ({
         }
       },
     });
-  }, [data, historyClient, setConfirmModal, setData, setHistoryClient, setClientToEdit, setIsClientModalOpen, setLiveToast]);
+  }, [data, historyClient, setConfirmModal, setData, setHistoryClient, setClientToEdit, setIsClientModalOpen, setLiveToast, dataRef]);
 
   const handleDeleteBatch = useCallback((clientIds: string[]) => {
     if (!clientIds.length) return;
@@ -308,14 +311,15 @@ export const useClientActions = ({
       title: 'Excluir Clientes Selecionados',
       message: `Deseja realmente excluir os ${clientIds.length} clientes selecionados? Todas as cobranças associadas a eles também serão removidas.`,
       onConfirm: () => {
+        const freshData = dataRef ? dataRef.current : data;
         const idSet = new Set(clientIds);
-        const associatedCharges = data.charges.filter((ch) => idSet.has(ch.clientId));
+        const associatedCharges = freshData.charges.filter((ch) => idSet.has(ch.clientId));
         trackClientsBatchDeletion(clientIds);
         trackChargesBatchDeletion(associatedCharges.map((ch) => ch.id));
         const nextData = {
-          ...data,
-          clients: data.clients.filter((c) => !idSet.has(c.id)),
-          charges: data.charges.filter((ch) => !idSet.has(ch.clientId)),
+          ...freshData,
+          clients: freshData.clients.filter((c) => !idSet.has(c.id)),
+          charges: freshData.charges.filter((ch) => !idSet.has(ch.clientId)),
           updatedAt: Date.now(),
         };
         setData(nextData);
@@ -335,7 +339,7 @@ export const useClientActions = ({
         }
       },
     });
-  }, [data, historyClient, setConfirmModal, setData, setHistoryClient, setClientToEdit, setIsClientModalOpen, setLiveToast]);
+  }, [data, historyClient, setConfirmModal, setData, setHistoryClient, setClientToEdit, setIsClientModalOpen, setLiveToast, dataRef]);
 
   return { handleOpenNewClient, handleOpenEditClient, handleOpenRenewClient, handleConfirmRenewal, handleSaveRenewalTemplate, handleSaveClient, handleUpdateClientPhone, handleSaveBatch, handleDeleteClient, handleDeleteBatch };
 };
