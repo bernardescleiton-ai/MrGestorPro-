@@ -52,7 +52,9 @@ export const useAppData = () => {
   const setData = (update: AppData | ((prev: AppData) => AppData)) => {
     setRawData((prev) => {
       const next = typeof update === 'function' ? update(prev) : update;
-      return { ...next, updatedAt: Date.now() };
+      const result = { ...next, updatedAt: Date.now() };
+      dataRef.current = result;
+      return result;
     });
   };
 

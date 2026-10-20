@@ -139,9 +139,7 @@ export function sanitizeAppData(raw: any): AppData {
 }
 
 const isLocalServer = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  const host = window.location.host;
-  return host.includes('localhost:3000') || host.includes('127.0.0.1:3000');
+  return typeof window !== 'undefined';
 };
 
 // Fetch current state from Cloud Firestore or Local Server

@@ -1,8 +1,6 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
@@ -21,20 +19,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Load Firebase configuration
-const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
 let db: any = null;
 let firestoreCooldownUntil = 0;
-
-if (fs.existsSync(configPath)) {
-  try {
-    const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
-  } catch (err) {
-    db = null;
-  }
-}
 
 // Local storage setup
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -113,8 +99,12 @@ app.get('/api/data', async (req, res) => {
           return res.json({ success: true, data: cloudData, exists: true });
         }
       } catch (dbErr: any) {
-        // Quota exceeded or network issue -> activate 15-minute circuit breaker
-        firestoreCooldownUntil = now + 15 * 60 * 1000;
+        const msg = String(dbErr?.message || dbErr);
+        if (msg.includes('resource-exhausted') || msg.includes('Quota exceeded') || dbErr?.code === 'resource-exhausted') {
+          firestoreCooldownUntil = now + 24 * 60 * 60 * 1000;
+        } else {
+          firestoreCooldownUntil = now + 15 * 60 * 1000;
+        }
       }
     }
 
@@ -152,8 +142,13 @@ app.post('/api/data', async (req, res) => {
       try {
         const docRef = doc(db, 'app_state', APP_STATE_DOC_ID);
         await setDoc(docRef, sanitizedData);
-      } catch {
-        firestoreCooldownUntil = now + 15 * 60 * 1000;
+      } catch (dbErr: any) {
+        const msg = String(dbErr?.message || dbErr);
+        if (msg.includes('resource-exhausted') || msg.includes('Quota exceeded') || dbErr?.code === 'resource-exhausted') {
+          firestoreCooldownUntil = now + 24 * 60 * 60 * 1000;
+        } else {
+          firestoreCooldownUntil = now + 15 * 60 * 1000;
+        }
       }
     }
 
@@ -224,8 +219,13 @@ function initMidnightRestoreScheduler() {
           const { id: _id, ...rest } = restorePoint;
           await setDoc(pointRef, sanitizeDataForFirestore(rest), { merge: true });
           console.log(`[Server Scheduler] Daily 00:00 restore point synced to Firestore: ${pointId}`);
-        } catch (err: any) {
-          console.warn('[Server Scheduler] Firestore restore point notice:', err?.message);
+        } catch (dbErr: any) {
+          const msg = String(dbErr?.message || dbErr);
+          if (msg.includes('resource-exhausted') || msg.includes('Quota exceeded') || dbErr?.code === 'resource-exhausted') {
+            firestoreCooldownUntil = Date.now() + 24 * 60 * 60 * 1000;
+          } else {
+            firestoreCooldownUntil = Date.now() + 15 * 60 * 1000;
+          }
         }
       }
     } catch (err) {

@@ -7,6 +7,7 @@ import {
   deleteSentLogFromFirestore,
   deleteSentLogsBatchFromFirestore,
   saveAppDataToFirestore,
+  getIsQuotaExhausted,
 } from './firebase';
 import type { AppData } from '../types';
 
@@ -249,6 +250,7 @@ export function hasPendingLocalChanges(): boolean {
 
 // Synchronize pending offline deletions to Cloud Firestore
 export async function flushPendingDeletionsToFirestore(): Promise<void> {
+  if (getIsQuotaExhausted()) return;
   const pending = getPendingDeletions();
   if (!pending.clients.length && !pending.charges.length && !pending.logs.length) {
     return;
@@ -257,42 +259,55 @@ export async function flushPendingDeletionsToFirestore(): Promise<void> {
   // 1. Clients
   if (pending.clients.length > 0) {
     try {
-      if (pending.clients.length === 1) {
-        await deleteClientFromFirestore(pending.clients[0]);
-      } else {
-        await deleteClientsBatchFromFirestore(pending.clients);
-      }
+      await deleteClientsBatchFromFirestore(pending.clients);
       pending.clients = [];
-    } catch (e) {
-      logger.warn('Pending client deletions sync notice:', e);
+    } catch {
+      // Fall back to individual deletes if batch fails
+      const remaining: string[] = [];
+      for (const id of pending.clients) {
+        try {
+          await deleteClientFromFirestore(id);
+        } catch {
+          remaining.push(id);
+        }
+      }
+      pending.clients = remaining;
     }
   }
 
   // 2. Charges
   if (pending.charges.length > 0) {
     try {
-      if (pending.charges.length === 1) {
-        await deleteChargeFromFirestore(pending.charges[0]);
-      } else {
-        await deleteChargesBatchFromFirestore(pending.charges);
-      }
+      await deleteChargesBatchFromFirestore(pending.charges);
       pending.charges = [];
-    } catch (e) {
-      logger.warn('Pending charge deletions sync notice:', e);
+    } catch {
+      const remaining: string[] = [];
+      for (const id of pending.charges) {
+        try {
+          await deleteChargeFromFirestore(id);
+        } catch {
+          remaining.push(id);
+        }
+      }
+      pending.charges = remaining;
     }
   }
 
   // 3. Logs
   if (pending.logs.length > 0) {
     try {
-      if (pending.logs.length === 1) {
-        await deleteSentLogFromFirestore(pending.logs[0]);
-      } else {
-        await deleteSentLogsBatchFromFirestore(pending.logs);
-      }
+      await deleteSentLogsBatchFromFirestore(pending.logs);
       pending.logs = [];
-    } catch (e) {
-      logger.warn('Pending log deletions sync notice:', e);
+    } catch {
+      const remaining: string[] = [];
+      for (const id of pending.logs) {
+        try {
+          await deleteSentLogFromFirestore(id);
+        } catch {
+          remaining.push(id);
+        }
+      }
+      pending.logs = remaining;
     }
   }
 

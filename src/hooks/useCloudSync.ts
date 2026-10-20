@@ -148,7 +148,6 @@ export const useCloudSync = ({
     } catch (e) { logger.error('Error saving data:', e); }
 
     return () => {
-      if (localSaveTimer) clearTimeout(localSaveTimer);
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
