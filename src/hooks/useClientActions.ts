@@ -58,17 +58,7 @@ export const useClientActions = ({
       return { ...prev, clients: updatedClients, charges: updatedCharges };
     });
     setIsRenewalModalOpen(false);
-    setRenewalToast({ client, newDueDate: newDueDateStr, months, amount: customAmount || 0, messageSent: Boolean(sendWhatsApp), customMessage: customWhatsAppMessage });
-    if (sendWhatsApp) {
-      const phone = normalizePhone(client.phone);
-      if (phone) {
-        const formattedDate = formatDateTimeBR(newDueDateStr);
-        const valText = customAmount > 0 ? `\n💰 *Valor:* R$ ${customAmount.toFixed(2).replace('.', ',')}` : '';
-        const defaultMsg = `Olá, *${client.name}*! Sua renovação de acesso foi realizada com sucesso!\n\n📅 *Novo Vencimento:* ${formattedDate}${valText}\n\nAgradecemos a preferência!`;
-        const mediaToSend = media !== undefined ? media : data.settings.whatsappMedia;
-        await sendWhatsAppMessage({ phone: client.phone, text: customWhatsAppMessage?.trim() ? customWhatsAppMessage : defaultMsg, settings: data.settings, media: mediaToSend });
-      }
-    }
+    setRenewalToast({ client, newDueDate: newDueDateStr, months, amount: customAmount || 0, messageSent: false, customMessage: customWhatsAppMessage });
   }, [data.settings, generateUUID, setData, setIsRenewalModalOpen, setRenewalClient, setRenewalToast]);
 
   const handleSaveRenewalTemplate = useCallback((templateText: string) => {
