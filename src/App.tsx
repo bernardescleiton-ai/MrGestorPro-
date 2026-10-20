@@ -21,7 +21,6 @@ export default function App() {
     hasFetchedCloud: app.hasFetchedCloud,
     lastSavedDataJsonRef: app.lastSavedDataJsonRef,
     setSyncError: app.setSyncError,
-    setLiveToast: app.setLiveToast,
   });
 
   const clientActions = useClientActions({

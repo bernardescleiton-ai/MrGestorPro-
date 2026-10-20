@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import type { AppData } from '../types';
 import { subscribeToApiData, saveAppData, mergeAppData, fetchAppData } from '../lib/api';
 import { canonicalJson } from '../lib/firebase';
-import type { LiveToast } from './useAppData';
 import { checkAndTriggerDeviceNotifications } from '../utils/notifications';
 import { markHasPendingLocalChanges, syncLocalStateToFirebase, flushPendingDeletionsToFirestore, hasPendingLocalChanges } from '../lib/offlineSyncManager';
 
@@ -11,13 +10,12 @@ export const useCloudSync = ({
   data,
   dataRef,
   setRawData,
-  setSyncTrigger,
+  setSyncTrigger: _setSyncTrigger,
   syncTrigger,
   isRemoteUpdate,
   lastSavedDataJsonRef,
   hasFetchedCloud,
   setSyncError,
-  setLiveToast,
 }: {
   data: AppData;
   dataRef: React.MutableRefObject<AppData>;
@@ -28,7 +26,7 @@ export const useCloudSync = ({
   hasFetchedCloud: React.MutableRefObject<boolean>;
   lastSavedDataJsonRef: React.MutableRefObject<string>;
   setSyncError: (value: string | null) => void;
-  setLiveToast: React.Dispatch<React.SetStateAction<LiveToast | null>>;
+  setLiveToast?: unknown;
 }) => {
   const lastRemoteUpdateTimestamp = useRef<number>(0);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -47,9 +45,9 @@ export const useCloudSync = ({
         }
         lastSavedDataJsonRef.current = mergedHash;
         try { localStorage.setItem('gc_v1_data', JSON.stringify(merged)); } catch {}
-        // Trigger initial notification check after load
+        // Trigger initial notification check after load (native device notifications only)
         setTimeout(() => {
-          checkAndTriggerDeviceNotifications(merged, setLiveToast);
+          checkAndTriggerDeviceNotifications(merged);
         }, 1500);
       } else {
         hasFetchedCloud.current = true;
@@ -71,7 +69,7 @@ export const useCloudSync = ({
         }).catch(() => {});
       }
       if (dataRef.current) {
-        checkAndTriggerDeviceNotifications(dataRef.current, setLiveToast);
+        checkAndTriggerDeviceNotifications(dataRef.current);
       }
     };
     window.addEventListener('focus', handleSyncReset);
@@ -83,7 +81,7 @@ export const useCloudSync = ({
       window.removeEventListener('online', handleSyncReset);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [setSyncError, setLiveToast]);
+  }, [setSyncError]);
 
   useEffect(() => {
     const unsubscribe = subscribeToApiData(
@@ -193,11 +191,11 @@ export const useCloudSync = ({
   useEffect(() => {
     const interval = setInterval(() => {
       if (dataRef.current && document.visibilityState === 'visible') {
-        checkAndTriggerDeviceNotifications(dataRef.current, setLiveToast);
+        checkAndTriggerDeviceNotifications(dataRef.current);
       }
     }, 60000);
     return () => clearInterval(interval);
-  }, [setLiveToast]);
+  }, []);
 
   return null;
 };

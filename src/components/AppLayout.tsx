@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Bell, X, MessageCircle } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import type { AppData, Client, Charge, CompanySettings, SystemRestorePoint, SectionType } from '../types';
 import { Sidebar } from './Sidebar';
 import { DashboardView } from './DashboardView';
@@ -15,12 +15,11 @@ import { ClientHistoryModal } from './ClientHistoryModal';
 import { RenewalModal } from './RenewalModal';
 import { RenewalSuccessToast, RenewalToastData } from './RenewalSuccessToast';
 import { SendMessageModal } from './SendMessageModal';
-import { normalizePhone } from '../utils/formatters';
 import type { LiveToast, ConfirmModal } from '../hooks/useAppData';
 import { logger } from '../lib/logger';
 export interface AppLayoutProps {
   data: AppData; activeSection: SectionType; dueTabFilter: DueTabFilter; clientStatusFilter: ClientFilterType;
-  liveToast: LiveToast | null; renewalToast: RenewalToastData | null; isClientModalOpen: boolean; clientToEdit: Client | null;
+  liveToast?: LiveToast | null; renewalToast: RenewalToastData | null; isClientModalOpen: boolean; clientToEdit: Client | null;
   isChargeModalOpen: boolean; chargeDefaultClientId?: string; historyClient: Client | null; renewalClient: Client | null;
   isRenewalModalOpen: boolean; confirmModal: ConfirmModal; restorePoints: SystemRestorePoint[]; isSyncing: boolean; syncError: string | null;
   setActiveSection: React.Dispatch<React.SetStateAction<SectionType>>; setClientStatusFilter: React.Dispatch<React.SetStateAction<ClientFilterType>>;
@@ -44,9 +43,9 @@ export interface AppLayoutProps {
   handleImportData: (newData: { settings: CompanySettings; clients: Client[]; charges: Charge[] }) => void;
 }
 export const AppLayout: React.FC<AppLayoutProps> = ({
-  data, activeSection, dueTabFilter, clientStatusFilter, liveToast, renewalToast, isClientModalOpen, clientToEdit,
+  data, activeSection, dueTabFilter, clientStatusFilter, liveToast: _liveToast, renewalToast, isClientModalOpen, clientToEdit,
   isChargeModalOpen, chargeDefaultClientId, historyClient, renewalClient, isRenewalModalOpen, confirmModal, restorePoints, isSyncing, syncError,
-  setActiveSection, setClientStatusFilter, setLiveToast, setRenewalToast, setIsClientModalOpen, setIsChargeModalOpen, setHistoryClient, setIsRenewalModalOpen, setConfirmModal,
+  setActiveSection, setClientStatusFilter, setLiveToast: _setLiveToast, setRenewalToast, setIsClientModalOpen, setIsChargeModalOpen, setHistoryClient, setIsRenewalModalOpen, setConfirmModal,
   handleManualSync, handleNavigate, handleOpenNewClient, handleOpenEditClient, handleUpdateClientPhone, handleDeleteClient, handleDeleteBatch, handleSendWhatsApp, recordSentMessage, handleOpenRenewClient,
   handleMarkPaid, handleUndoPaid, handleDeleteCharge, handleDeleteSentLog, handleDeleteSentLogsBatch, handleDeleteChargesBatch, handleToggleMessageSent,
   handleSaveClient, handleSaveBatch, handleSaveCharge, handleOpenNewCharge, handleConfirmRenewal, handleSaveRenewalTemplate, handleSaveSettings, createRestorePoint, handleDeleteRestorePoint, importExternalRestorePoint, handleImportData,
@@ -76,11 +75,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
         try {
           await handleDeleteRestorePoint(point.id);
-          setLiveToast({
-            title: 'Ponto Excluído',
-            message: `O ponto "${point.name}" foi excluído com sucesso!`,
-            type: 'info'
-          });
         } catch (err) {
           logger.error('Error deleting restore point:', err);
         }
@@ -251,89 +245,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         settings={data.settings}
         onClose={() => setRenewalToast(null)}
       />
-      {/* Real-time In-App Live Alert Toast */}
-      {liveToast && (
-        <div className="fixed inset-x-3 top-3 sm:top-5 sm:right-5 sm:left-auto sm:max-w-md sm:w-full z-50 animate-in slide-in-from-top-4 duration-300">
-          <div className="bg-slate-900 text-white rounded-2xl shadow-2xl p-3.5 sm:p-4 border border-slate-700 space-y-3 max-h-[85vh] flex flex-col overflow-hidden">
-            <div className="flex items-start gap-2.5 sm:gap-3 shrink-0">
-              <div className="p-2 sm:p-2.5 bg-rose-600 rounded-xl shrink-0 mt-0.5 animate-pulse">
-                <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="font-bold text-xs sm:text-sm text-white tracking-tight line-clamp-2">{liveToast.title}</h4>
-                <p className="text-[11px] sm:text-xs text-slate-300 mt-0.5 font-mono leading-snug line-clamp-2">{liveToast.body}</p>
-              </div>
-              <button
-                onClick={() => setLiveToast(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors shrink-0 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            {liveToast.clientMessage && (
-              <div className="p-2.5 sm:p-3 bg-slate-800/90 rounded-xl border border-slate-700 space-y-1 flex-1 min-h-0 flex flex-col overflow-hidden">
-                <div className="flex items-center justify-between shrink-0">
-                  <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                    <MessageCircle className="w-3 h-3 text-emerald-400 shrink-0" />
-                    Mensagem para o cliente:
-                  </span>
-                  <button
-                    onClick={() => {
-                      if (navigator?.clipboard?.writeText && liveToast.clientMessage) {
-                        navigator.clipboard.writeText(liveToast.clientMessage);
-                      }
-                    }}
-                    className="text-[10px] text-blue-400 hover:underline cursor-pointer font-semibold"
-                  >
-                    Copiar
-                  </button>
-                </div>
-                <div className="overflow-y-auto max-h-36 sm:max-h-52 pr-1 text-xs text-slate-200 font-sans italic leading-relaxed whitespace-pre-wrap">
-                  "{liveToast.clientMessage}"
-                </div>
-              </div>
-            )}
-            <div className="flex items-center gap-2 pt-1 shrink-0">
-              {liveToast.client ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleTriggerWhatsApp(liveToast.client!, liveToast.charge);
-                    setLiveToast(null);
-                  }}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  Enviar WhatsApp ao Cliente
-                </button>
-              ) : liveToast.phone ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const num = normalizePhone(liveToast.phone!);
-                    if (num) {
-                      const msg = liveToast.clientMessage ? encodeURIComponent(liveToast.clientMessage) : '';
-                      window.open(`https://wa.me/55${num}?text=${msg}`, '_blank');
-                    }
-                    setLiveToast(null);
-                  }}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  Abrir WhatsApp
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setLiveToast(null)}
-                className="px-3.5 py-2 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer shrink-0"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 p-6 space-y-4">
