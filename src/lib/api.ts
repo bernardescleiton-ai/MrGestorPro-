@@ -42,16 +42,10 @@ export function sanitizeAppData(raw: any): AppData {
   const rawCharges = Array.isArray(raw.charges) ? raw.charges : [];
   const rawLogs = Array.isArray(raw.sentLogs) ? raw.sentLogs : [];
 
-  // Remove legacy template mock clients & invalid date clients
-  const dummyIds = new Set(['c-1', 'c-2', 'c-3']);
-  const dummyNames = new Set(['Ana Silva', 'Carlos Oliveira', 'Mariana Souza', 'Mariana Sousa']);
-
   const cleanClients = rawClients
     .filter((c: any) => {
       if (!c || typeof c !== 'object') return false;
-      if (dummyIds.has(c?.id)) return false;
       const rawName = String(c?.name || '').trim();
-      if (dummyNames.has(rawName)) return false;
       if (!rawName) return false;
       return true;
     })
@@ -66,64 +60,19 @@ export function sanitizeAppData(raw: any): AppData {
     });
 
   const cleanLogs = rawLogs
-    .filter(
-      (l: any) => l && typeof l === 'object' && !dummyIds.has(l?.clientId) && !dummyNames.has((l?.clientName || '').trim())
-    )
+    .filter((l: any) => l && typeof l === 'object')
     .map((l: any, index: number) => ({
       ...l,
       id: String(l.id || `l_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 6)}`),
     }));
 
-  const validClientIds = new Set(cleanClients.map((c: any) => c.id));
-  const phoneToClientId = new Map<string, string>();
-  const nameToClientId = new Map<string, string>();
-  cleanClients.forEach((c: any) => {
-    const cleanPhone = String(c.phone || '').replace(/\D/g, '').replace(/^55/, '');
-    if (cleanPhone.length >= 8) phoneToClientId.set(cleanPhone, c.id);
-    const cleanName = String(c.name || '').trim().toLowerCase();
-    if (cleanName) nameToClientId.set(cleanName, c.id);
-  });
-
-  const logChargeMap = new Map<string, any>();
-  const logClientMap = new Map<string, any>();
-  cleanLogs.forEach((l: any) => {
-    if (l.chargeId) logChargeMap.set(l.chargeId, l);
-    if (l.clientId) logClientMap.set(l.clientId, l);
-  });
-
   const cleanCharges = rawCharges
-    .filter(
-      (ch: any) => ch && typeof ch === 'object' && !dummyIds.has(ch?.clientId) && !['ch-1', 'ch-2', 'ch-3'].includes(ch?.id)
-    )
-    .map((ch: any, index: number) => {
-      let resolvedClientId = String(ch.clientId || '');
-      if (!validClientIds.has(resolvedClientId)) {
-        const cleanChIdPhone = resolvedClientId.replace(/\D/g, '').replace(/^55/, '');
-        if (cleanChIdPhone.length >= 8 && phoneToClientId.has(cleanChIdPhone)) {
-          resolvedClientId = phoneToClientId.get(cleanChIdPhone)!;
-        } else {
-          const matchedLog =
-            (ch.id ? logChargeMap.get(ch.id) : undefined) ||
-            (resolvedClientId ? logClientMap.get(resolvedClientId) : undefined);
-          if (matchedLog) {
-            const logPhone = String(matchedLog.phone || '').replace(/\D/g, '').replace(/^55/, '');
-            const logName = String(matchedLog.clientName || '').trim().toLowerCase();
-            if (logPhone && phoneToClientId.has(logPhone)) {
-              resolvedClientId = phoneToClientId.get(logPhone)!;
-            } else if (logName && nameToClientId.has(logName)) {
-              resolvedClientId = nameToClientId.get(logName)!;
-            } else if (matchedLog.clientId && validClientIds.has(matchedLog.clientId)) {
-              resolvedClientId = matchedLog.clientId;
-            }
-          }
-        }
-      }
-      return {
-        ...ch,
-        id: String(ch.id || `ch_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 6)}`),
-        clientId: resolvedClientId,
-      };
-    });
+    .filter((ch: any) => ch && typeof ch === 'object')
+    .map((ch: any, index: number) => ({
+      ...ch,
+      id: String(ch.id || `ch_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 6)}`),
+      clientId: String(ch.clientId || ''),
+    }));
 
   return {
     clients: cleanClients,
