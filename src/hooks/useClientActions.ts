@@ -67,16 +67,11 @@ export const useClientActions = ({
 
   const handleSaveClient = useCallback((clientData: Omit<Client, 'id' | 'createdAt'>, editId?: string) => {
     const trimmedName = clientData.name.trim();
-    const duplicate = isDuplicateClientName(trimmedName, data.clients, editId, clientData.phone);
-    const targetClientId = editId || (duplicate ? duplicate.id : generateUUID());
-    const isUpdatingExisting = Boolean(editId || duplicate);
+    const targetClientId = editId || generateUUID();
+    const isUpdatingExisting = Boolean(editId);
     removeClientTombstone(targetClientId);
 
     setData((prev) => {
-      const duplicate = isDuplicateClientName(trimmedName, prev.clients, editId, clientData.phone);
-      const targetClientId = editId || (duplicate ? duplicate.id : generateUUID());
-      const isUpdatingExisting = Boolean(editId || duplicate);
-
       let updatedClients = [...prev.clients];
       let updatedCharges = [...prev.charges];
 
@@ -136,15 +131,13 @@ export const useClientActions = ({
     });
 
     if (setLiveToast) {
-      if (duplicate && !editId) {
-        setLiveToast({ title: 'Cliente Atualizado', message: `Cliente "${duplicate.name}" já existente foi atualizado com a nova data de vencimento!` });
-      } else if (editId) {
+      if (editId) {
         setLiveToast({ title: 'Cliente Salvo', message: `Cadastro de "${trimmedName}" atualizado com sucesso.` });
       } else {
         setLiveToast({ title: 'Novo Cliente', message: `Cliente "${trimmedName}" cadastrado com sucesso.` });
       }
     }
-  }, [data.clients, generateUUID, setData, setLiveToast]);
+  }, [generateUUID, setData, setLiveToast]);
 
   const handleUpdateClientPhone = useCallback((clientId: string, newPhone: string) => setData((prev) => ({ ...prev, clients: prev.clients.map((c) => c.id === clientId ? { ...c, phone: newPhone } : c) })), [setData]);
 
