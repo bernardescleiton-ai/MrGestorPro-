@@ -36,9 +36,15 @@ export const useAppData = () => {
   const [data, setRawData] = useState<AppData>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return sanitizeAppData(JSON.parse(saved));
+      console.log('Diagnostic: Reading from localStorage. Saved data found:', !!saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        console.log('Diagnostic: Parsed data structure:', parsed);
+        return sanitizeAppData(parsed);
+      }
+      console.log('Diagnostic: No data found in localStorage, using initial.');
     } catch (e) {
-      logger.error('Error loading localStorage:', e);
+      console.error('Diagnostic: Error loading localStorage:', e);
     }
     return sanitizeAppData({ ...initialAppData, updatedAt: 1 });
   });

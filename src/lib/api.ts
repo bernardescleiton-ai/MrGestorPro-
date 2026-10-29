@@ -134,9 +134,8 @@ export async function fetchAppData(): Promise<{ data: AppData | null; exists: bo
 
 // Save state to local server only
 export async function saveAppData(data: AppData, _debounceMs: number = 0): Promise<void> {
-  const safeData = sanitizeAppData(data);
-
-  // Firestore sync disabled as per user request
+  // Local-only persistence: Skip Firestore save
+  return;
   
   // 2. If running on local dev server, also persist locally
   if (isLocalServer()) {

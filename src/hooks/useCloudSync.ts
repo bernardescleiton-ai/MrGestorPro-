@@ -24,9 +24,35 @@ export const useCloudSync = ({
 }) => {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 1. Initial Load: Disabled to enforce local-only data persistence
+  // 1. Initial Load: Synchronize disk data and localStorage seamlessly
   useEffect(() => {
-    hasFetchedCloud.current = true;
+    let isMounted = true;
+
+    fetchAppData()
+      .then((res) => {
+        if (!isMounted) return;
+        hasFetchedCloud.current = true;
+
+        // ONLY restore from server if local storage is completely empty
+        const localClients = Array.isArray(dataRef.current.clients) ? dataRef.current.clients : [];
+        if (localClients.length === 0 && res.exists && res.data && Array.isArray(res.data.clients)) {
+          const cleanServerData = sanitizeAppData(res.data);
+          dataRef.current = cleanServerData;
+          isRemoteUpdate.current = true;
+          setRawData(cleanServerData);
+          try {
+            localStorage.setItem('gc_v1_data', JSON.stringify(cleanServerData));
+          } catch {}
+        }
+      })
+      .catch((err) => {
+        logger.warn('Initial data synchronization notice:', err);
+        hasFetchedCloud.current = true;
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // 2. Continuous persistence: update localStorage immediately and save to server
