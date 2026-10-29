@@ -54,6 +54,11 @@ export const useAppData = () => {
       const next = typeof update === 'function' ? update(prev) : update;
       const result = { ...next, updatedAt: Date.now() };
       dataRef.current = result;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+      } catch (e) {
+        logger.error('Error saving localStorage in setData:', e);
+      }
       return result;
     });
   };

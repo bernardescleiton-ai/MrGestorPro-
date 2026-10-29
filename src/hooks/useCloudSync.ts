@@ -32,33 +32,19 @@ export const useCloudSync = ({
   const lastSyncResetMs = useRef<number>(0);
 
   useEffect(() => {
-    fetchAppData().then((res) => {
-      hasFetchedCloud.current = true;
-      if (res.exists && res.data) {
-        lastRemoteUpdateTimestamp.current = Date.now();
-        const serverClients = Array.isArray(res.data.clients) ? res.data.clients : [];
-        const localClients = Array.isArray(dataRef.current.clients) ? dataRef.current.clients : [];
-        
-        // If local storage has more clients than server, local storage is master! Push local to server.
-        if (localClients.length > serverClients.length) {
-          saveAppData(dataRef.current, 0).catch(() => {});
-          return;
-        }
+    hasFetchedCloud.current = true;
+    const localClients = Array.isArray(dataRef.current.clients) ? dataRef.current.clients : [];
+    if (localClients.length > 0) {
+      saveAppData(dataRef.current, 0).catch(() => {});
+      return;
+    }
 
-        const merged = mergeAppData(dataRef.current, res.data);
-        const currentHash = canonicalJson({ clients: dataRef.current.clients, charges: dataRef.current.charges, settings: dataRef.current.settings, sentLogs: dataRef.current.sentLogs });
-        const mergedHash = canonicalJson({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
-        if (currentHash !== mergedHash) {
-          setRawData(merged);
-        }
-        lastSavedDataJsonRef.current = mergedHash;
-        try { localStorage.setItem('gc_v1_data', JSON.stringify(merged)); } catch {}
-      } else {
-        saveAppData(dataRef.current, 0).catch(() => {});
+    fetchAppData().then((res) => {
+      if (res.exists && res.data) {
+        setRawData(sanitizeAppData(res.data));
+        try { localStorage.setItem('gc_v1_data', JSON.stringify(res.data)); } catch {}
       }
-    }).catch(() => {
-      hasFetchedCloud.current = true;
-    });
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
