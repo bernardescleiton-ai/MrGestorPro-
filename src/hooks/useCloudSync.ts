@@ -36,7 +36,13 @@ export const useCloudSync = ({
       if (res.exists && res.data) {
         hasFetchedCloud.current = true;
         lastRemoteUpdateTimestamp.current = Date.now();
-        const merged = mergeAppData(dataRef.current, res.data);
+        const serverClients = Array.isArray(res.data.clients) ? res.data.clients : [];
+        const localClients = Array.isArray(dataRef.current.clients) ? dataRef.current.clients : [];
+        
+        const merged = (serverClients.length === 0 && localClients.length > 0)
+          ? dataRef.current
+          : mergeAppData(dataRef.current, res.data);
+
         const currentHash = canonicalJson({ clients: dataRef.current.clients, charges: dataRef.current.charges, settings: dataRef.current.settings, sentLogs: dataRef.current.sentLogs });
         const mergedHash = canonicalJson({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
         if (currentHash !== mergedHash) {
@@ -81,7 +87,13 @@ export const useCloudSync = ({
         setSyncError(null);
         if (exists && cloudData) {
           hasFetchedCloud.current = true;
-          const merged = mergeAppData(dataRef.current, cloudData);
+          const cloudClients = Array.isArray(cloudData.clients) ? cloudData.clients : [];
+          const localClients = Array.isArray(dataRef.current.clients) ? dataRef.current.clients : [];
+          
+          const merged = (cloudClients.length === 0 && localClients.length > 0)
+            ? dataRef.current
+            : mergeAppData(dataRef.current, cloudData);
+
           const currentHash = canonicalJson({ clients: dataRef.current.clients, charges: dataRef.current.charges, settings: dataRef.current.settings, sentLogs: dataRef.current.sentLogs });
           const mergedHash = canonicalJson({ clients: merged.clients, charges: merged.charges, settings: merged.settings, sentLogs: merged.sentLogs });
           
