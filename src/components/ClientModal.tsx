@@ -388,9 +388,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
     }
 
     const trimmedName = name.trim();
-    const safeClients = clients || [];
-    const duplicate = isDuplicateClientName(trimmedName, safeClients, clientToEdit?.id, phone);
-    const targetEditId = clientToEdit ? clientToEdit.id : (duplicate ? duplicate.id : undefined);
+    const targetEditId = clientToEdit?.id;
 
     const finalDueDate = dueDate ? formatForDateTimeInput(dueDate) : undefined;
 
