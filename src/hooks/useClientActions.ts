@@ -147,81 +147,47 @@ export const useClientActions = ({
 
     let actualCreatedCount = 0;
     let actualUpdatedCount = 0;
+    const currentData = dataRef ? dataRef.current : data;
+    let updatedClients = [...currentData.clients];
+    let updatedCharges = [...currentData.charges];
 
-    setData((prev) => {
-      let updatedClients = [...prev.clients];
-      let updatedCharges = [...prev.charges];
+    // 1. Process Explicit Updates for Existing Clients
+    for (const item of toUpdate) {
+      const cIndex = updatedClients.findIndex((c) => c.id === item.id);
+      if (cIndex === -1) continue;
+      const currentClient = updatedClients[cIndex];
 
-      // 1. Process Explicit Updates for Existing Clients
-      for (const item of toUpdate) {
-        const cIndex = updatedClients.findIndex((c) => c.id === item.id);
-        if (cIndex === -1) continue;
-        const currentClient = updatedClients[cIndex];
+      const updatedClient: Client = {
+        ...currentClient,
+        ...(item.data.phone !== undefined && item.data.phone !== '' ? { phone: item.data.phone } : {}),
+        ...(item.data.dueDate !== undefined && item.data.dueDate !== '' ? { dueDate: item.data.dueDate } : {}),
+        ...(item.data.notes !== undefined && item.data.notes !== '' ? { notes: item.data.notes } : {}),
+      };
+      updatedClients[cIndex] = updatedClient;
+      actualUpdatedCount++;
 
-        const updatedClient: Client = {
-          ...currentClient,
-          ...(item.data.phone !== undefined && item.data.phone !== '' ? { phone: item.data.phone } : {}),
-          ...(item.data.dueDate !== undefined && item.data.dueDate !== '' ? { dueDate: item.data.dueDate } : {}),
-          ...(item.data.notes !== undefined && item.data.notes !== '' ? { notes: item.data.notes } : {}),
-        };
-        updatedClients[cIndex] = updatedClient;
-        actualUpdatedCount++;
-
-        // Keep unpaid charge synchronized if dueDate is updated
-        if (item.data.dueDate) {
-          const [datePart, timePart] = item.data.dueDate.includes('T')
-            ? item.data.dueDate.split('T')
-            : [item.data.dueDate, ''];
-          let foundUnpaid = false;
-          updatedCharges = updatedCharges.map((ch) => {
-            if (ch.clientId === item.id && !ch.paid) {
-              if (!foundUnpaid) {
-                foundUnpaid = true;
-                return { ...ch, dueDate: datePart, dueTime: timePart || undefined };
-              }
-              return null as any;
+      // Keep unpaid charge synchronized if dueDate is updated
+      if (item.data.dueDate) {
+        const [datePart, timePart] = item.data.dueDate.includes('T')
+          ? item.data.dueDate.split('T')
+          : [item.data.dueDate, ''];
+        let foundUnpaid = false;
+        updatedCharges = updatedCharges.map((ch) => {
+          if (ch.clientId === item.id && !ch.paid) {
+            if (!foundUnpaid) {
+              foundUnpaid = true;
+              return { ...ch, dueDate: datePart, dueTime: timePart || undefined };
             }
-            return ch;
-          }).filter(Boolean);
-
-          if (!foundUnpaid) {
-            updatedCharges = [
-              {
-                id: generateUUID(),
-                clientId: item.id,
-                amount: 0,
-                dueDate: datePart,
-                dueTime: timePart || undefined,
-                paid: false,
-                note: 'Vencimento do Cliente',
-                createdAt: new Date().toISOString(),
-              },
-              ...updatedCharges,
-            ];
+            return null as any;
           }
-        }
-      }
+          return ch;
+        }).filter(Boolean);
 
-      // 2. Process toCreate items: create new client record for each item as requested
-      for (const clientData of toCreate) {
-        const trimmedName = clientData.name.trim();
-        if (!trimmedName) continue;
-
-        const targetClientId = generateUUID();
-        updatedClients = [
-          { id: targetClientId, ...clientData, name: trimmedName, createdAt: new Date().toISOString() },
-          ...updatedClients,
-        ];
-        actualCreatedCount++;
-
-        if (clientData.dueDate) {
-          const [datePart, timePart] = clientData.dueDate.includes('T')
-            ? clientData.dueDate.split('T')
-            : [clientData.dueDate, ''];
+        if (!foundUnpaid) {
           updatedCharges = [
             {
               id: generateUUID(),
-              clientId: targetClientId,
+              clientId: item.id,
               amount: 0,
               dueDate: datePart,
               dueTime: timePart || undefined,
@@ -233,9 +199,51 @@ export const useClientActions = ({
           ];
         }
       }
+    }
 
-      return { ...prev, clients: updatedClients, charges: updatedCharges, updatedAt: Date.now() };
-    });
+    // 2. Process toCreate items: create new client record for each item as requested
+    for (const clientData of toCreate) {
+      const trimmedName = clientData.name.trim();
+      if (!trimmedName) continue;
+
+      const targetClientId = generateUUID();
+      updatedClients = [
+        { id: targetClientId, ...clientData, name: trimmedName, createdAt: new Date().toISOString() },
+        ...updatedClients,
+      ];
+      actualCreatedCount++;
+
+      if (clientData.dueDate) {
+        const [datePart, timePart] = clientData.dueDate.includes('T')
+          ? clientData.dueDate.split('T')
+          : [clientData.dueDate, ''];
+        updatedCharges = [
+          {
+            id: generateUUID(),
+            clientId: targetClientId,
+            amount: 0,
+            dueDate: datePart,
+            dueTime: timePart || undefined,
+            paid: false,
+            note: 'Vencimento do Cliente',
+            createdAt: new Date().toISOString(),
+          },
+          ...updatedCharges,
+        ];
+      }
+    }
+
+    const nextData = {
+      ...currentData,
+      clients: updatedClients,
+      charges: updatedCharges,
+      updatedAt: Date.now(),
+    };
+    setData(nextData);
+    saveAppData(nextData).catch(() => {});
+    try {
+      localStorage.setItem('gc_v1_data', JSON.stringify(nextData));
+    } catch {}
 
     if (setLiveToast && (actualCreatedCount > 0 || actualUpdatedCount > 0)) {
       const summaryMsg = [];
@@ -246,7 +254,7 @@ export const useClientActions = ({
         message: `${summaryMsg.join(' e ')} com sucesso!`,
       });
     }
-  }, [generateUUID, setData, setLiveToast]);
+  }, [generateUUID, setData, setLiveToast, dataRef, data]);
 
   const handleDeleteClient = useCallback((clientId: string) => {
     const currentData = dataRef ? dataRef.current : data;

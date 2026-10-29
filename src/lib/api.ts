@@ -241,9 +241,8 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
 
   const localUpdated = typeof local?.updatedAt === 'number' ? local.updatedAt : 0;
   const cloudUpdated = typeof cloud?.updatedAt === 'number' ? cloud.updatedAt : 0;
-  const isLocalNewer = localUpdated > cloudUpdated;
 
-  // 1. Clients: Inclusive union of cloud and local records (excluding explicit deletions)
+  // Additive union of cloud and local records (excluding explicit deletions)
   const clientMap = new Map<string, Client>();
   for (const c of cloudClients) {
     if (c?.id && !deletedClientIds.has(c.id)) {
@@ -252,14 +251,15 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
   }
   for (const c of localClients) {
     if (c?.id && !deletedClientIds.has(c.id)) {
-      if (!clientMap.has(c.id) || isLocalNewer) {
+      if (!clientMap.has(c.id)) {
         clientMap.set(c.id, c);
+      } else {
+        clientMap.set(c.id, { ...clientMap.get(c.id), ...c });
       }
     }
   }
   const finalClients = Array.from(clientMap.values());
 
-  // 2. Charges: Inclusive union of cloud and local records (excluding explicit deletions)
   const chargeMap = new Map<string, Charge>();
   for (const ch of cloudCharges) {
     if (ch?.id && !deletedChargeIds.has(ch.id)) {
@@ -268,22 +268,21 @@ export function mergeAppData(local: AppData, cloud: AppData): AppData {
   }
   for (const ch of localCharges) {
     if (ch?.id && !deletedChargeIds.has(ch.id)) {
-      if (!chargeMap.has(ch.id) || isLocalNewer) {
+      if (!chargeMap.has(ch.id)) {
         chargeMap.set(ch.id, ch);
+      } else {
+        chargeMap.set(ch.id, { ...chargeMap.get(ch.id), ...ch });
       }
     }
   }
   const finalCharges = Array.from(chargeMap.values());
 
-  // 3. SentLogs: Merge unique logs
   const logMap = new Map<string, SentMessageLog>();
   for (const l of cloudLogs) {
     if (l?.id && !deletedLogIds.has(l.id)) logMap.set(l.id, l);
   }
   for (const l of localLogs) {
-    if (l?.id && !deletedLogIds.has(l.id) && (!logMap.has(l.id) || isLocalNewer)) {
-      logMap.set(l.id, l);
-    }
+    if (l?.id && !deletedLogIds.has(l.id)) logMap.set(l.id, l);
   }
   const finalLogs = Array.from(logMap.values());
 
