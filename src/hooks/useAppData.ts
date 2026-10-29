@@ -54,11 +54,19 @@ export const useAppData = () => {
       const next = typeof update === 'function' ? update(prev) : update;
       const result = { ...next, updatedAt: Date.now() };
       dataRef.current = result;
+      
+      // Force immediate and synchronous persistence
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+        // Verify it was actually saved
+        const verification = localStorage.getItem(STORAGE_KEY);
+        if (!verification) {
+            logger.error('CRITICAL: localStorage.setItem failed to persist data');
+        }
       } catch (e) {
         logger.error('Error saving localStorage in setData:', e);
       }
+      
       saveAppData(result, 0).catch(() => {});
       return result;
     });
