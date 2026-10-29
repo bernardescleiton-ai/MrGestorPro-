@@ -99,24 +99,16 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
   // Using an intent:// scheme with package=com.whatsapp.w4b (WhatsApp Business) or com.whatsapp (Standard WhatsApp)
   // forces Android to open the WhatsApp App directly, avoiding the intermediate redirect to WhatsApp Web.
   if (isAndroid) {
-    // Attempt W4B, then WA, then Web fallback
-    const intentW4B = `intent://send/?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end;`;
-    const intentWA = `intent://send/?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}#Intent;scheme=whatsapp;package=com.whatsapp;end;`;
-    const webUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
-
-    // Try W4B
-    window.location.href = intentW4B;
+    // Using the generic 'whatsapp://' protocol with an anchor element click is often 
+    // the most reliable way to trigger the installed WhatsApp app on Android without
+    // complex intent parsing that some browsers (like Edge) may block.
+    const url = `whatsapp://send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
     
-    // Timeout to try fallback
-    setTimeout(() => {
-      // If we are still on the page, try standard WhatsApp
-      window.location.href = intentWA;
-      
-      setTimeout(() => {
-          // If still on page, fallback to web
-          window.location.href = webUrl;
-      }, 1000);
-    }, 1000);
+    const a = document.createElement('a');
+    a.href = url;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     
     return;
   }
