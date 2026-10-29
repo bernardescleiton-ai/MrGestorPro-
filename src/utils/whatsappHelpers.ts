@@ -96,15 +96,20 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
   const isAndroid = /Android/i.test(userAgent);
 
   // 1. Android Direct Open (Specifically optimized for Microsoft Edge Android & Chrome Android):
-  // Using an intent:// scheme with package=com.whatsapp forces Android to open the WhatsApp App
-  // directly, avoiding the intermediate redirect to WhatsApp Web that often happens with api.whatsapp.com.
+  // Using an intent:// scheme with package=com.whatsapp.w4b (WhatsApp Business) or com.whatsapp (Standard WhatsApp)
+  // forces Android to open the WhatsApp App directly, avoiding the intermediate redirect to WhatsApp Web.
   if (isAndroid) {
-    const intentUrl = `intent://send/?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}#Intent;scheme=whatsapp;package=com.whatsapp;end;`;
+    // Try WhatsApp Business first, then Standard WhatsApp
+    const intentUrlW4B = `intent://send/?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end;`;
+    const intentUrlWA = `intent://send/?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}#Intent;scheme=whatsapp;package=com.whatsapp;end;`;
+    
+    // We attempt to open W4B. If the user doesn't have it, the intent might not resolve.
+    // For now, we try to open W4B first as requested.
     try {
-      window.location.href = intentUrl;
+      window.location.href = intentUrlW4B;
     } catch (e) {
-      // Fallback to standard universal link if intent fails
-      window.location.href = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
+      // Fallback
+      window.location.href = intentUrlWA;
     }
     return;
   }
