@@ -19,8 +19,31 @@ app.use((req, res, next) => {
   next();
 });
 
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
+
+// Initialize Firebase in server
 let db: any = null;
-let firestoreCooldownUntil = 0;
+try {
+  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const fApp = getApps().length === 0
+      ? initializeApp({
+          apiKey: firebaseConfig.apiKey,
+          authDomain: firebaseConfig.authDomain,
+          projectId: firebaseConfig.projectId,
+          storageBucket: firebaseConfig.storageBucket,
+          messagingSenderId: firebaseConfig.messagingSenderId,
+          appId: firebaseConfig.appId,
+        })
+      : getApp();
+    db = getFirestore(fApp, firebaseConfig.firestoreDatabaseId);
+    console.log('[SERVER] Firestore initialized successfully with db:', firebaseConfig.firestoreDatabaseId);
+  }
+} catch (e) {
+  console.error('[SERVER] Firestore initialization error:', e);
+}
 
 // Local storage setup
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -85,9 +108,30 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-app.get('/api/data', (req, res) => {
+app.get('/api/data', async (req, res) => {
   try {
     const localData = readLocalStorage();
+    if (localData && Array.isArray(localData.clients) && localData.clients.length > 0) {
+      return res.json({ success: true, data: localData, exists: true });
+    }
+
+    // If local disk is empty or missing (e.g. fresh Cloud Run instance), load from Firestore!
+    if (db) {
+      try {
+        const docRef = doc(db, 'app_state', 'main_state');
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          const cloudData = snap.data();
+          if (cloudData && Array.isArray(cloudData.clients) && cloudData.clients.length > 0) {
+            writeLocalStorage(cloudData);
+            return res.json({ success: true, data: cloudData, exists: true });
+          }
+        }
+      } catch (dbErr: any) {
+        console.warn('[SERVER] Firestore fetch warning:', dbErr?.message);
+      }
+    }
+
     return res.json({ success: true, data: localData, exists: !!localData });
   } catch (err: any) {
     console.error('GET /api/data error:', err);
@@ -95,7 +139,7 @@ app.get('/api/data', (req, res) => {
   }
 });
 
-app.post('/api/data', (req, res) => {
+app.post('/api/data', async (req, res) => {
   try {
     const payload = req.body;
     if (!payload || typeof payload !== 'object') {
@@ -120,9 +164,17 @@ app.post('/api/data', (req, res) => {
       updatedAt: typeof payload.updatedAt === 'number' && payload.updatedAt > 0 ? payload.updatedAt : Date.now(),
     });
 
-    const written = writeLocalStorage(sanitizedData);
-    if (!written) {
-      console.error('Warning: writeLocalStorage returned false');
+    // 1. Write to local server disk cache
+    writeLocalStorage(sanitizedData);
+
+    // 2. Persist to Firestore master database
+    if (db) {
+      try {
+        const docRef = doc(db, 'app_state', 'main_state');
+        await setDoc(docRef, sanitizedData);
+      } catch (dbErr: any) {
+        console.warn('[SERVER] Firestore save warning:', dbErr?.message);
+      }
     }
 
     res.json({ success: true, data: sanitizedData, updatedAt: sanitizedData.updatedAt });
