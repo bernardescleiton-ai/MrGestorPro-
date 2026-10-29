@@ -37,22 +37,25 @@ function readLocalStorage() {
   if (fs.existsSync(DATA_FILE)) {
     try {
       const content = fs.readFileSync(DATA_FILE, 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      // Ignored
+      if (content && content.trim()) {
+        return JSON.parse(content);
+      }
+    } catch (e) {
+      console.error('Error reading app_storage.json:', e);
     }
   }
   return null;
 }
 
-function writeLocalStorage(data: any) {
+function writeLocalStorage(data: any): boolean {
   ensureDataDir();
-  const tempFile = `${DATA_FILE}.tmp`;
   try {
-    fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-    fs.renameSync(tempFile, DATA_FILE);
-  } catch {
-    // Write fallback
+    const jsonStr = JSON.stringify(data, null, 2);
+    fs.writeFileSync(DATA_FILE, jsonStr, 'utf-8');
+    return true;
+  } catch (err) {
+    console.error('Failed to write app_storage.json:', err);
+    return false;
   }
 }
 
@@ -74,8 +77,6 @@ function sanitizeDataForFirestore(obj: any): any {
   return obj;
 }
 
-const APP_STATE_DOC_ID = 'main_state';
-
 // -------------------------------------------------------------
 // API Endpoints
 // -------------------------------------------------------------
@@ -84,77 +85,49 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-app.get('/api/data', async (req, res) => {
+app.get('/api/data', (req, res) => {
   try {
-    const now = Date.now();
-    const canUseFirestore = db && now > firestoreCooldownUntil;
-
-    if (canUseFirestore) {
-      try {
-        const docRef = doc(db, 'app_state', APP_STATE_DOC_ID);
-        const snapshot = await getDoc(docRef);
-        if (snapshot.exists()) {
-          const cloudData = snapshot.data();
-          writeLocalStorage(cloudData);
-          return res.json({ success: true, data: cloudData, exists: true });
-        }
-      } catch (dbErr: any) {
-        const msg = String(dbErr?.message || dbErr);
-        if (msg.includes('resource-exhausted') || msg.includes('Quota exceeded') || dbErr?.code === 'resource-exhausted') {
-          firestoreCooldownUntil = now + 24 * 60 * 60 * 1000;
-        } else {
-          firestoreCooldownUntil = now + 15 * 60 * 1000;
-        }
-      }
-    }
-
     const localData = readLocalStorage();
     return res.json({ success: true, data: localData, exists: !!localData });
   } catch (err: any) {
-    const fallbackData = readLocalStorage();
-    res.json({ success: true, data: fallbackData, exists: !!fallbackData });
+    console.error('GET /api/data error:', err);
+    res.json({ success: false, data: null, exists: false, error: err?.message });
   }
 });
 
-app.post('/api/data', async (req, res) => {
+app.post('/api/data', (req, res) => {
   try {
     const payload = req.body;
     if (!payload || typeof payload !== 'object') {
       return res.status(400).json({ success: false, error: 'Invalid payload' });
     }
 
-    const currentLocal = readLocalStorage();
+    const currentLocal = readLocalStorage() || { clients: [], charges: [], settings: {}, sentLogs: [] };
+
+    // Safety guard: if current storage has clients, and incoming payload has 0 clients,
+    // do not wipe out all clients unless forceEmpty: true was explicitly sent
+    let incomingClients = Array.isArray(payload.clients) ? payload.clients : (currentLocal.clients || []);
+    if (incomingClients.length === 0 && Array.isArray(currentLocal.clients) && currentLocal.clients.length > 0 && !payload.forceEmpty) {
+      console.warn(`[STORAGE GUARD] Prevented overwriting ${currentLocal.clients.length} existing clients with 0 clients! Preserving existing clients.`);
+      incomingClients = currentLocal.clients;
+    }
+
     const sanitizedData = sanitizeDataForFirestore({
-      clients: Array.isArray(payload.clients) ? payload.clients : (currentLocal?.clients || []),
+      clients: incomingClients,
       charges: Array.isArray(payload.charges) ? payload.charges : (currentLocal?.charges || []),
       settings: payload.settings && typeof payload.settings === 'object' ? payload.settings : (currentLocal?.settings || {}),
       sentLogs: Array.isArray(payload.sentLogs) ? payload.sentLogs : (currentLocal?.sentLogs || []),
       updatedAt: typeof payload.updatedAt === 'number' && payload.updatedAt > 0 ? payload.updatedAt : Date.now(),
     });
 
-    // Write to server local disk
-    writeLocalStorage(sanitizedData);
-
-    const now = Date.now();
-    const canUseFirestore = db && now > firestoreCooldownUntil;
-
-    if (canUseFirestore) {
-      try {
-        const docRef = doc(db, 'app_state', APP_STATE_DOC_ID);
-        await setDoc(docRef, sanitizedData);
-      } catch (dbErr: any) {
-        const msg = String(dbErr?.message || dbErr);
-        if (msg.includes('resource-exhausted') || msg.includes('Quota exceeded') || dbErr?.code === 'resource-exhausted') {
-          firestoreCooldownUntil = now + 24 * 60 * 60 * 1000;
-        } else {
-          firestoreCooldownUntil = now + 15 * 60 * 1000;
-        }
-      }
+    const written = writeLocalStorage(sanitizedData);
+    if (!written) {
+      console.error('Warning: writeLocalStorage returned false');
     }
 
     res.json({ success: true, data: sanitizedData, updatedAt: sanitizedData.updatedAt });
   } catch (err: any) {
-    console.warn('POST /api/data handled warning:', err?.message);
+    console.error('POST /api/data error:', err);
     const fallback = readLocalStorage() || {};
     res.json({ success: true, data: fallback, warning: err?.message || 'Handled with fallback' });
   }

@@ -121,34 +121,30 @@ export function isDuplicateClientName(
   excludeId?: string,
   candidatePhone?: string
 ): Client | undefined {
-  if (!candidateName && !candidatePhone) return undefined;
+  if (!candidateName || !candidateName.trim()) return undefined;
 
-  const cleanCandidateName = normalizeNameForComparison(candidateName || '');
-  const candidatePhoneDigits = candidatePhone ? candidatePhone.replace(/\D/g, '') : '';
-  const candPhoneNoDDI = candidatePhoneDigits.replace(/^55/, '');
+  const cleanCandidateName = normalizeNameForComparison(candidateName);
+  if (!cleanCandidateName) return undefined;
 
   return existingClients.find((c) => {
     if (excludeId && c.id === excludeId) return false;
+    const cleanExistingName = normalizeNameForComparison(c.name || '');
+    if (!cleanExistingName) return false;
 
-    const existingPhoneDigits = c.phone ? c.phone.replace(/\D/g, '') : '';
-    const existPhoneNoDDI = existingPhoneDigits.replace(/^55/, '');
-
-    // 1. If both have valid phone numbers (>= 8 digits):
-    if (candPhoneNoDDI.length >= 8 && existPhoneNoDDI.length >= 8) {
-      if (candPhoneNoDDI === existPhoneNoDDI) {
-        return true;
-      }
+    // Names MUST match for a client to be considered a duplicate!
+    if (cleanCandidateName !== cleanExistingName) {
       return false;
     }
 
-    // 2. If phone is NOT conflicting and name matches:
-    if (cleanCandidateName) {
-      const cleanExistingName = normalizeNameForComparison(c.name || '');
-      if (cleanCandidateName === cleanExistingName) {
-        return true;
+    // If both have phones, and phones are different valid numbers, they are distinct accounts
+    if (candidatePhone && c.phone) {
+      const candDigits = candidatePhone.replace(/\D/g, '').replace(/^55/, '');
+      const existDigits = c.phone.replace(/\D/g, '').replace(/^55/, '');
+      if (candDigits.length >= 8 && existDigits.length >= 8 && candDigits !== existDigits) {
+        return false;
       }
     }
 
-    return false;
+    return true;
   });
 }

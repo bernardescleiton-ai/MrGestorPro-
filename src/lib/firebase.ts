@@ -1,6 +1,4 @@
-import { AppData, Client, Charge, SentMessageLog, CompanySettings, SystemRestorePoint } from '../types';
-import { initialAppData } from '../data/initialData';
-import { logger } from './logger';
+import { AppData, SystemRestorePoint } from '../types';
 
 export let isQuotaExhausted = true;
 
@@ -17,8 +15,6 @@ export const db = null;
 export async function testFirestoreConnection(): Promise<boolean> {
   return false;
 }
-
-const SETTINGS_DOC_ID = 'main_settings';
 
 export enum OperationType {
   CREATE = 'create',
@@ -61,7 +57,6 @@ export function subscribeToAppData(
 export const cloudClientsCache = new Map<string, string>();
 export const cloudChargesCache = new Map<string, string>();
 export const cloudLogsCache = new Map<string, string>();
-let cloudSettingsHash = '';
 
 export function canonicalJson(obj: any): string {
   if (obj === null || obj === undefined) return '';

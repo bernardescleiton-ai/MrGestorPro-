@@ -239,6 +239,7 @@ export const useClientActions = ({
       charges: updatedCharges,
       updatedAt: Date.now(),
     };
+    removeClientsBatchTombstone(updatedClients.map((c) => c.id));
     setData(nextData);
     saveAppData(nextData).catch(() => {});
     try {

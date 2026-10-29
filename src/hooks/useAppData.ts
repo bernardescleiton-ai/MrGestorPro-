@@ -59,6 +59,7 @@ export const useAppData = () => {
       } catch (e) {
         logger.error('Error saving localStorage in setData:', e);
       }
+      saveAppData(result, 0).catch(() => {});
       return result;
     });
   };

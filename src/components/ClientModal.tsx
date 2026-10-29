@@ -240,7 +240,8 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       let duplicateType: 'none' | 'system_duplicate' | 'batch_duplicate' = 'none';
 
       if (isExisting) {
-        initialAction = 'update';
+        // Safe default: create as new client so no existing client is replaced unless user explicitly chooses update
+        initialAction = 'create';
         duplicateType = 'system_duplicate';
       } else if (isBatchDuplicate) {
         initialAction = 'create';
