@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Bell, MessageSquare, Phone, Calendar, Clock, AlertTriangle, CheckCircle2, Send, Copy, Smartphone, ShieldCheck, Zap } from 'lucide-react';
 import { Client, Charge, CompanySettings } from '../types';
-import { brl, dateBR, todayStr, normalizePhone, formatDateTimeBR, getDefaultMessage, encodeForWhatsApp } from '../utils/formatters';
+import { brl, dateBR, todayStr, normalizePhone, formatDateTimeBR, getDefaultMessage, encodeForWhatsApp, openWhatsAppLink } from '../utils/formatters';
 import {
   getNotificationPermissionStatus,
   requestDeviceNotificationPermission,
@@ -301,8 +301,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         alertItems.map((ai, idx) => `${idx + 1}. *[${ai.categoryLabel}]*\n   • Cliente: ${ai.clientName}\n   • Tel: ${ai.clientPhone || '—'}\n   • ${ai.description}${ai.amount ? ' (' + brl(ai.amount) + ')' : ''}\n   • Vencimento: ${ai.dueDateStr}\n   • 💬 *Mensagem ao Cliente:* "${ai.clientMessage}"`).join('\n\n');
     }
 
-    const encoded = encodeForWhatsApp(text);
-    window.open(`https://wa.me/55${cleanPhone}?text=${encoded}`, '_blank');
+    openWhatsAppLink(cleanPhone, text, settings);
   };
 
   return (

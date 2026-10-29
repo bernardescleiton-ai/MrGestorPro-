@@ -92,6 +92,32 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
   const encodedText = text ? encodeForWhatsApp(text) : '';
   const method = settings?.whatsappMethod || 'direct_app';
 
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const isAndroid = /Android/i.test(userAgent);
+
+  // 1. Android Direct Open (Specifically optimized for Microsoft Edge Android & Chrome Android):
+  // Edge on Android strictly intercepts non-HTTP schemes ("whatsapp://") and prompts "Abrir aplicativo externo?".
+  // Using https://api.whatsapp.com/send in the same frame triggers Android App Links natively,
+  // opening the WhatsApp application directly with NO browser permission prompt.
+  if (isAndroid) {
+    const androidUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
+    try {
+      const a = document.createElement('a');
+      a.href = androidUrl;
+      // Do not use target="_blank" as new tabs trigger Edge's popup interception
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (document.body.contains(a)) document.body.removeChild(a);
+      }, 300);
+    } catch {
+      window.location.href = androidUrl;
+    }
+    return;
+  }
+
+  // 2. Desktop WhatsApp Web
   if (method === 'web') {
     const targetUrl = `https://web.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
     try {
@@ -105,11 +131,12 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
         if (document.body.contains(a)) document.body.removeChild(a);
       }, 150);
     } catch {
-      window.open(targetUrl, '_blank');
+      window.location.href = targetUrl;
     }
     return;
   }
 
+  // 3. Desktop / universal wa.me
   if (method === 'wame') {
     const targetUrl = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
     try {
@@ -123,11 +150,12 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
         if (document.body.contains(a)) document.body.removeChild(a);
       }, 150);
     } catch {
-      window.open(targetUrl, '_blank');
+      window.location.href = targetUrl;
     }
     return;
   }
 
+  // 4. Desktop WhatsApp Application (Desktop App scheme)
   const nativeAppUrl = `whatsapp://send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
   try {
     const a = document.createElement('a');
