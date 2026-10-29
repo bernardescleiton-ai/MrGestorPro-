@@ -122,8 +122,11 @@ export async function saveAppDataToFirestore(data: AppData): Promise<void> {
   try {
     const docRef = doc(db, 'app_state', APP_STATE_DOC_ID);
     const sanitized = sanitizeDataForFirestore(data);
+    console.log('Attempting to setDoc in Firestore...', sanitized);
     await setDoc(docRef, sanitized);
+    console.log('Successfully setDoc in Firestore.');
   } catch (err: any) {
+    console.error('saveAppDataToFirestore FAILED:', err?.message || err);
     logger.warn('saveAppDataToFirestore notice:', err?.message || err);
   }
 }

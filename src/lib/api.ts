@@ -91,22 +91,10 @@ const isLocalServer = (): boolean => {
   return typeof window !== 'undefined';
 };
 
-// Fetch current state from Cloud Firestore or Local Server
+// Fetch current state from Local Storage or Local Server
 export async function fetchAppData(): Promise<{ data: AppData | null; exists: boolean }> {
-  // 1. Direct Cloud Firestore (Master Database)
-  try {
-    const cloudData = await fetchAppDataFromFirestore();
-    logger.info('Fetched app data from Firestore:', JSON.stringify(cloudData));
-    if (cloudData) {
-      return {
-        data: sanitizeAppData(cloudData),
-        exists: true,
-      };
-    }
-  } catch (firestoreErr) {
-    logger.warn('Firestore fetch notice:', firestoreErr);
-  }
-
+  // 1. Firestore fetch disabled as per user request
+  
   // 2. If running on local server fallback
   if (isLocalServer()) {
     try {
@@ -127,25 +115,29 @@ export async function fetchAppData(): Promise<{ data: AppData | null; exists: bo
     }
   }
 
+  // Final check: Load from localStorage if available
+  try {
+    const local = localStorage.getItem('gc_v1_data');
+    if (local) {
+      return {
+        data: sanitizeAppData(JSON.parse(local)),
+        exists: true
+      };
+    }
+  } catch {}
+
   return {
     data: null,
     exists: false,
   };
 }
 
-// Save state to Cloud Firestore and local server
+// Save state to local server only
 export async function saveAppData(data: AppData, _debounceMs: number = 0): Promise<void> {
   const safeData = sanitizeAppData(data);
 
-  // 1. Always save directly to Cloud Firestore (guarantees real-time sync with APK & Web)
-  try {
-    logger.info('Saving app data to Firestore, count:', safeData.clients.length);
-    await saveAppDataToFirestore(safeData);
-    logger.info('Successfully saved app data to Firestore.');
-  } catch (err) {
-    logger.error('Cloud Firestore save FAILED:', err);
-  }
-
+  // Firestore sync disabled as per user request
+  
   // 2. If running on local dev server, also persist locally
   if (isLocalServer()) {
     try {
