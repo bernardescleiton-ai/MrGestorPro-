@@ -96,6 +96,7 @@ export async function fetchAppData(): Promise<{ data: AppData | null; exists: bo
   // 1. Direct Cloud Firestore (Master Database)
   try {
     const cloudData = await fetchAppDataFromFirestore();
+    logger.info('Fetched app data from Firestore:', JSON.stringify(cloudData));
     if (cloudData) {
       return {
         data: sanitizeAppData(cloudData),
@@ -138,6 +139,7 @@ export async function saveAppData(data: AppData, _debounceMs: number = 0): Promi
 
   // 1. Always save directly to Cloud Firestore (guarantees real-time sync with APK & Web)
   try {
+    logger.info('Saving app data to Firestore:', JSON.stringify(safeData));
     await saveAppDataToFirestore(safeData);
   } catch (err) {
     logger.warn('Cloud Firestore save notice:', err);

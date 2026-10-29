@@ -96,23 +96,15 @@ export const openWhatsAppLink = (phoneInput: string, text: string, settings?: Co
   const isAndroid = /Android/i.test(userAgent);
 
   // 1. Android Direct Open (Specifically optimized for Microsoft Edge Android & Chrome Android):
-  // Edge on Android strictly intercepts non-HTTP schemes ("whatsapp://") and prompts "Abrir aplicativo externo?".
-  // Using https://api.whatsapp.com/send in the same frame triggers Android App Links natively,
-  // opening the WhatsApp application directly with NO browser permission prompt.
+  // Using an intent:// scheme with package=com.whatsapp forces Android to open the WhatsApp App
+  // directly, avoiding the intermediate redirect to WhatsApp Web that often happens with api.whatsapp.com.
   if (isAndroid) {
-    const androidUrl = `https://api.whatsapp.com/send?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}`;
+    const intentUrl = `intent://send/?phone=${fullPhone}${encodedText ? `&text=${encodedText}` : ''}#Intent;scheme=whatsapp;package=com.whatsapp;end;`;
     try {
-      const a = document.createElement('a');
-      a.href = androidUrl;
-      // Do not use target="_blank" as new tabs trigger Edge's popup interception
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) document.body.removeChild(a);
-      }, 300);
-    } catch {
-      window.location.href = androidUrl;
+      window.location.href = intentUrl;
+    } catch (e) {
+      // Fallback to standard universal link if intent fails
+      window.location.href = `https://wa.me/${fullPhone}${encodedText ? `?text=${encodedText}` : ''}`;
     }
     return;
   }
