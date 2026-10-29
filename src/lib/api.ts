@@ -139,10 +139,11 @@ export async function saveAppData(data: AppData, _debounceMs: number = 0): Promi
 
   // 1. Always save directly to Cloud Firestore (guarantees real-time sync with APK & Web)
   try {
-    logger.info('Saving app data to Firestore:', JSON.stringify(safeData));
+    logger.info('Saving app data to Firestore, count:', safeData.clients.length);
     await saveAppDataToFirestore(safeData);
+    logger.info('Successfully saved app data to Firestore.');
   } catch (err) {
-    logger.warn('Cloud Firestore save notice:', err);
+    logger.error('Cloud Firestore save FAILED:', err);
   }
 
   // 2. If running on local dev server, also persist locally

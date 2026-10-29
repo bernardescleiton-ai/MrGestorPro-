@@ -93,10 +93,14 @@ export const useCloudSync = ({
     }
 
     saveTimeoutRef.current = setTimeout(() => {
+      logger.info('Triggering background save for', dataRef.current.clients.length, 'clients.');
       saveAppData(dataRef.current)
-        .then(() => setSyncError(null))
+        .then(() => {
+          logger.info('Background save completed successfully.');
+          setSyncError(null);
+        })
         .catch((err) => {
-          logger.warn('Background save notice:', err);
+          logger.error('Background save FAILED:', err);
         });
     }, 300);
 
